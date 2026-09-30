@@ -1,0 +1,15 @@
+DAILY KOMOTIC BRIEFING
+30-09-2026
+
+FICTIONAL EXAMPLE: layout demonstration only. These are invented companies and events, not news.
+
+1. Ink Harbour adds creator-controlled issue pricing [Competition]
+Ink Harbour has introduced creator-controlled per-issue pricing in its digital comics store.
+Why it matters to Komotic: We should compare the purchasing flow with our planned Marketplace before deciding whether there is a meaningful difference.
+Example Comics Journal | 29-09-2026 | Feed excerpt only
+https://news.example/pricing
+
+Coverage: 1/1 configured sources checked successfully.
+1 candidate assessed by the model; collection is selective, not exhaustive.
+Collection cutoff: 30-09-2026 07:13 Europe/Madrid.
+Reported developments and our interpretation are kept separate. Open the sources for the underlying reporting.

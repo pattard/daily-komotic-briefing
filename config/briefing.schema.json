@@ -1,0 +1,91 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "headline": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "Competition",
+              "Opportunity",
+              "Threat",
+              "Partnership",
+              "Industry"
+            ]
+          },
+          "source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 3
+          },
+          "summary": {
+            "type": "string"
+          },
+          "implication": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "event_key": {
+            "type": "string"
+          },
+          "is_update": {
+            "type": "boolean"
+          },
+          "new_development": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "source_id": {
+                  "type": "string"
+                },
+                "quote": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "source_id",
+                "quote"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 3
+          }
+        },
+        "required": [
+          "headline",
+          "category",
+          "source_ids",
+          "summary",
+          "implication",
+          "action",
+          "event_key",
+          "is_update",
+          "new_development",
+          "evidence"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 5
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "additionalProperties": false
+}
