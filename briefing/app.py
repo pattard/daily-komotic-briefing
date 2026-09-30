@@ -10,7 +10,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .common import ROOT, iso, load_json, parse_date, settings, utcnow
-from .editor import edit
+from .editor import analysis_record, edit
 from .http import APIError, APIs, PublicClient, ping
 from .render import render, write_outputs
 from .sources import collect
@@ -81,6 +81,8 @@ def deliver(store, key: str, api, resend_key: str, clock=utcnow) -> str:
 
 def run(mode: str, cfg: dict, store, api, client, keys: dict, output: Path,
         run_id: str, clock=utcnow, collector=collect, pinger=ping) -> str:
+    if mode not in {"preview", "send-test", "scheduled", "send-edition", "arm-monitor"}:
+        raise ValueError("Use check_sources() for a collection-only check; run() only accepts newsletter modes.")
     now = clock()
     production = production_mode(mode)
     if mode == "arm-monitor":
@@ -88,9 +90,10 @@ def run(mode: str, cfg: dict, store, api, client, keys: dict, output: Path,
             raise RuntimeError("Enable NEWSLETTER_ENABLED before arming monitoring.")
         good_tests = [value for name, value in store.data["editions"].items()
                       if name.startswith("send-test-") and value.get("status") == "queued"
-                      and value.get("health_ok") and (parse_date(value.get("created")) or now - timedelta(days=2)) >= now - timedelta(days=1)]
+                      and value.get("health_ok") and value.get("briefing", {}).get("status") in {"briefing", "quiet"}
+                      and (parse_date(value.get("created")) or now - timedelta(days=2)) >= now - timedelta(days=1)]
         if not good_tests:
-            raise RuntimeError("Monitoring requires a successful full send-test from the last 24 hours, with adequate source coverage.")
+            raise RuntimeError("Monitoring requires a successful full send-test from the last 24 hours, with a non-fallback newsletter and adequate source coverage.")
         # This is an explicit setup heartbeat, not a claim that a scheduled run occurred.
         pinger(keys.get("healthchecks", ""), True)
         store.data["monitor_armed_at"] = iso(now)
@@ -124,6 +127,9 @@ def run(mode: str, cfg: dict, store, api, client, keys: dict, output: Path,
         watchlist = load_json(ROOT / "config/watchlist.json")
         aliases = [alias for row in watchlist["entities"] for alias in row["aliases"]]
         articles, report = collector(client, sources, aliases, store.data["seen"], now, cfg, store.data["initialised"])
+        report["run_mode"] = mode
+        report["diagnostics_version"] = 2
+        report["collection_status"] = collection_status(report)
         briefing = edit(articles, report, cfg, store, now, key, api, keys.get("openai", ""))
         prepared_at = clock()
         delayed = production and prepared_at >= target_time(prepared_at, cfg)
@@ -134,8 +140,6 @@ def run(mode: str, cfg: dict, store, api, client, keys: dict, output: Path,
         if production and target > prepared_at + timedelta(seconds=45):
             payload["scheduled_at"] = iso(target)
         ids = set(briefing["assessed_ids"])
-        if briefing["status"] == "links_only":
-            ids = {a["id"] for a in briefing["links"]}
         reviewed = {a.id: {"fingerprint": a.fingerprint,
                            "feed_fingerprint": report.get("feed_fingerprints", {}).get(a.id, ""),
                            "checked": iso(prepared_at)} for a in articles if a.id in ids}
@@ -157,6 +161,56 @@ def run(mode: str, cfg: dict, store, api, client, keys: dict, output: Path,
         pinger(keys.get("healthchecks", ""), edition["health_ok"])
     print("Resend accepted the email. Acceptance is not confirmation of inbox delivery.")
     return "queued"
+
+
+
+def collection_status(report: dict) -> str:
+    if report.get("fatal_collection"):
+        return "failed"
+    return "ok" if report.get("healthy_sources", 0) == report.get("total_sources", 0) else "partial"
+
+
+def check_sources(cfg: dict, client, output: Path, clock=utcnow, collector=collect) -> dict:
+    """Collect diagnostics only. Never create a newsletter or access API credentials/state."""
+    watch = load_json(ROOT / "config/watchlist.json")
+    aliases = [name for entity in watch["entities"] for name in entity["aliases"]]
+    _, report = collector(client, load_json(ROOT / "config/sources.json"), aliases, {}, clock(), cfg, False)
+    report.pop("feed_fingerprints", None)
+    report.update({"run_mode": "check-sources", "diagnostics_version": 2,
+                   "collection_status": collection_status(report), "edition_status": "not_generated",
+                   "analysis": analysis_record("not_requested")})
+    output.mkdir(parents=True, exist_ok=True)
+    # A reused local output directory must not attach a stale preview newsletter.
+    for name in ("newsletter.html", "newsletter.txt"):
+        (output / name).unlink(missing_ok=True)
+    (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report
+
+
+def write_run_summary(mode: str, result: str, output: Path) -> None:
+    summary = os.getenv("GITHUB_STEP_SUMMARY")
+    if not summary:
+        return
+    report_path = output / "report.json"
+    report = load_json(report_path) if report_path.exists() else {}
+    with open(summary, "a", encoding="utf-8") as handle:
+        handle.write(f"## Daily Komotic Briefing\n\nMode: `{mode}`. Execution result: `{result}`.\n\n")
+        if mode == "check-sources":
+            handle.write(f"Collection: `{report.get('collection_status', 'unknown')}`. No newsletter generated and no model request made.\n\n")
+            handle.write("Download `report.json`. This mode does not test newsletter generation.\n")
+        elif mode == "arm-monitor":
+            handle.write("Monitoring setup heartbeat only; no newsletter generated.\n")
+        elif report:
+            analysis = report.get("analysis", {})
+            handle.write(f"Edition: `{report.get('edition_status', 'unknown')}`. Analysis: `{analysis.get('status', 'not_recorded')}`.\n\n")
+            handle.write(f"Candidates submitted: {analysis.get('candidates_submitted', 'not_recorded')}. "
+                         f"Proposals: {analysis.get('proposed_items', 'not_recorded')}. "
+                         f"Accepted: {analysis.get('accepted_items', 'not_recorded')}. "
+                         f"Rejected: {analysis.get('rejected_items', 'not_recorded')}.\n\n")
+            if report.get("edition_status") == "links_only":
+                handle.write("**Fallback, not a completed briefing.** Inspect `analysis.validation_errors` and `fallback_reason` in `report.json`.\n\n")
+            handle.write("Download `newsletter.html`, `newsletter.txt` and `report.json`. "
+                         "A successful send confirms API acceptance, not inbox delivery.\n")
 
 
 def demo(output: Path) -> None:
@@ -184,13 +238,9 @@ def main() -> int:
     api = APIs()
     client = PublicClient()
     if args.mode == "check-sources":
-        watch = load_json(ROOT / "config/watchlist.json")
-        aliases = [name for entity in watch["entities"] for name in entity["aliases"]]
-        _, report = collect(client, load_json(ROOT / "config/sources.json"), aliases, {}, utcnow(), cfg, False)
-        report.pop("feed_fingerprints", None)
-        args.output.mkdir(parents=True, exist_ok=True)
-        (args.output / "report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        report = check_sources(cfg, client, args.output)
         print(f"Sources checked: {report['healthy_sources']}/{report['total_sources']} successful. No model request, email, state write or Healthchecks signal.")
+        write_run_summary("check-sources", report["collection_status"], args.output)
         return 1 if report["fatal_collection"] else 0
     store = store_from_environment(api, args.local_state)
     keys = {"openai": os.getenv("OPENAI_API_KEY", "").strip(), "resend": os.getenv("RESEND_API_KEY", "").strip(),
@@ -198,12 +248,7 @@ def main() -> int:
     # A unique local run identifier prevents unrelated tests sharing an outbox key.
     run_id = os.getenv("GITHUB_RUN_ID") or utcnow().strftime("%Y%m%dT%H%M%S%f")
     status = run(args.mode, cfg, store, api, client, keys, args.output, run_id)
-    summary = os.getenv("GITHUB_STEP_SUMMARY")
-    if summary:
-        with open(summary, "a", encoding="utf-8") as handle:
-            handle.write(f"## Daily Komotic Briefing\n\nMode: `{args.mode}`. Result: `{status}`.\n\n")
-            handle.write("Download the run artifact for `newsletter.html`, `newsletter.txt` and `report.json`.\n")
-            handle.write("A successful send confirms API acceptance, not inbox delivery.\n")
+    write_run_summary(args.mode, status, args.output)
     return 0
 
 

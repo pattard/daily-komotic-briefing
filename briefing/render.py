@@ -76,7 +76,14 @@ def render(briefing: dict, report: dict, cfg: dict, now: datetime, test: bool = 
     warnings = report.get("warnings", []) + briefing.get("warnings", [])
     coverage = f"Coverage: {report.get('healthy_sources', 0)}/{report.get('total_sources', 0)} configured sources checked successfully."
     count = len(briefing.get("assessed_ids", []))
-    assessed = f"{count} candidate{'s' if count != 1 else ''} assessed by the model; collection is selective, not exhaustive."
+    analysis = briefing.get("analysis")
+    if analysis is not None:
+        count = analysis.get("candidates_submitted", 0)
+        assessed = (f"{count} candidate{'s' if count != 1 else ''} submitted for model analysis; "
+                    f"{analysis.get('accepted_items', 0)} newsletter items passed publication checks. "
+                    "Collection is selective, not exhaustive.")
+    else:
+        assessed = f"{count} candidate{'s' if count != 1 else ''} assessed by the model; collection is selective, not exhaustive."
     if warnings:
         blocks.append('<div style="margin-top:22px;padding:14px;background:#fff4dd"><strong>Coverage / processing notes</strong>' +
                       "".join(f'<p style="font-size:13px;line-height:1.5;margin:7px 0">{esc(note)}</p>' for note in warnings[:10]) +
@@ -111,5 +118,7 @@ def write_outputs(directory: Path, payload: dict, briefing: dict, report: dict, 
     public_report = {k: v for k, v in report.items() if k != "feed_fingerprints"}
     public_report.update({"edition_status": briefing["status"], "estimated_monthly_model_usd": round(budget_usd, 6),
                           "selected_headlines": [item["headline"] for item in briefing["items"]],
-                          "editorial_warnings": briefing.get("warnings", [])})
+                          "editorial_warnings": briefing.get("warnings", []),
+                          "fallback_reason": briefing.get("note", "") if briefing["status"] in ("links_only", "collection_failure") else "",
+                          "analysis": briefing.get("analysis", {"status": "not_recorded"})})
     (directory / "report.json").write_text(json.dumps(public_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

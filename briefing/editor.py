@@ -12,9 +12,18 @@ from .sources import Article
 from .state import Budget
 
 
-def fallback(articles: list[Article], reason: str, status: str = "links_only") -> dict:
+def analysis_record(status: str = "not_started") -> dict:
+    """Public diagnostics: counts and check codes, never raw model output or quotes."""
+    return {"status": status, "model_requested": False, "candidates_submitted": 0,
+            "proposed_items": 0, "accepted_items": 0, "rejected_items": 0,
+            "skipped_items": 0, "validation_errors": [], "skipped": []}
+
+
+def fallback(articles: list[Article], reason: str, status: str = "links_only", *,
+             warnings: list[str] | None = None, analysis: dict | None = None) -> dict:
     return {"status": status, "items": [], "links": [a.record() for a in articles[:5]],
-            "note": reason, "warnings": [], "assessed_ids": []}
+            "note": reason, "warnings": list(warnings or []), "assessed_ids": [],
+            "analysis": analysis if analysis is not None else analysis_record("not_run")}
 
 
 def make_payload(articles: list[Article], history: list[dict], cfg: dict) -> dict:
@@ -36,9 +45,17 @@ def number_tokens(text: str) -> set[str]:
     return {m.replace(",", "").lower() for m in re.findall(r"\d+(?:[.,]\d+)*(?:%|[kmb])?", text, re.I)}
 
 
-def validate_selection(data: dict, articles: list[Article], history: list[dict], cfg: dict) -> tuple[list[dict], list[str]]:
+def validate_selection(data: dict, articles: list[Article], history: list[dict], cfg: dict,
+                       diagnostics: dict | None = None) -> tuple[list[dict], list[str]]:
+    diagnostics = diagnostics if diagnostics is not None else analysis_record()
     schema = load_json(ROOT / "config/briefing.schema.json")
-    if list(Draft202012Validator(schema).iter_errors(data)):
+    schema_errors = list(Draft202012Validator(schema).iter_errors(data))
+    if schema_errors:
+        # jsonschema messages can contain the rejected text. Export only the
+        # validator name, not its message, instance, extra property or value.
+        diagnostics["status"] = "schema_invalid"
+        diagnostics["validation_errors"] = [{"item": None, "source_ids": [], "checks": [
+            {"code": "schema_invalid", "validator": error.validator} for error in schema_errors[:10]]}]
         raise ValueError("Model output did not match the expected schema")
     available = {a.id: a for a in articles}
     prior = {row["event_key"] for row in history}
@@ -46,92 +63,139 @@ def validate_selection(data: dict, articles: list[Article], history: list[dict],
     selected, warnings = [], []
     quote_words = defaultdict(int)
     limits = {"headline": 25, "summary": 85, "implication": 55, "action": 25, "new_development": 40}
-    for item in data["items"][:5]:
-        invalid = False
+    diagnostics["proposed_items"] = len(data["items"])
+    for index, item in enumerate(data["items"][:5], 1):
+        checks: list[dict] = []
         ids = item["source_ids"]
         if not ids or len(ids) != len(set(ids)) or any(k not in available for k in ids):
-            invalid = True
+            checks.append({"code": "invalid_source_ids"})
+        # Keep duplicate handling distinct from validation failures.
+        skip_reason = ""
         if set(ids) & used_sources or item["event_key"] in used_events:
-            continue
-        if item["event_key"] in prior and not item["is_update"]:
+            skip_reason = "duplicate_in_edition"
+        elif item["event_key"] in prior and not item["is_update"]:
+            skip_reason = "already_reported"
+        if skip_reason:
+            diagnostics["skipped_items"] += 1
+            diagnostics["skipped"].append({"item": index, "reason": skip_reason})
             continue
         if item["is_update"] and not item["new_development"].strip():
-            invalid = True
+            checks.append({"code": "missing_update_detail"})
         for field, maximum in limits.items():
-            if len(item[field].split()) > maximum or re.search(r"https?://|www\.", item[field], re.I):
-                invalid = True
+            actual = len(item[field].split())
+            if actual > maximum:
+                checks.append({"code": "word_limit_exceeded", "field": field,
+                               "actual_words": actual, "maximum_words": maximum})
+            if re.search(r"https?://|www\.", item[field], re.I):
+                checks.append({"code": "generated_url", "field": field})
         if not item["evidence"]:
-            invalid = True
+            checks.append({"code": "missing_evidence"})
         cited = set()
         local_counts = defaultdict(int)
         for ev in item["evidence"]:
             sid, quote = ev["source_id"], clean(ev["quote"])
             cited.add(sid)
-            local_counts[sid] += len(quote.split())
-            if sid not in ids or sid not in available or len(quote.split()) < 4:
-                invalid = True
+            count = len(quote.split())
+            local_counts[sid] += count
+            if sid not in ids or sid not in available:
+                checks.append({"code": "invalid_evidence_source"})
+                continue
+            if count < 4:
+                checks.append({"code": "quote_too_short", "source_id": sid, "actual_words": count})
                 continue
             context = clean(available[sid].title + " " + available[sid].excerpt[:cfg["model_excerpt_chars"]])
             if quote not in context:
-                invalid = True
+                checks.append({"code": "quote_not_found", "source_id": sid})
             if local_counts[sid] + quote_words[sid] > 25:
-                invalid = True
+                checks.append({"code": "quote_word_limit_exceeded", "source_id": sid,
+                               "actual_words": local_counts[sid] + quote_words[sid], "maximum_words": 25})
         if cited != set(ids):
-            invalid = True
+            checks.append({"code": "evidence_source_mismatch"})
         context = " ".join(available[sid].title + " " + available[sid].excerpt[:cfg["model_excerpt_chars"]]
                            for sid in ids if sid in available)
-        if not number_tokens(item["summary"]) <= number_tokens(context):
-            invalid = True
-        if invalid:
-            warnings.append("An item failed source/format validation and was not published.")
+        unsupported = sorted(number_tokens(item["summary"]) - number_tokens(context))
+        if unsupported:
+            # Numeric tokens only, not arbitrary rejected text.
+            checks.append({"code": "unsupported_number", "field": "summary", "tokens": unsupported})
+        if checks:
+            diagnostics["rejected_items"] += 1
+            diagnostics["validation_errors"].append({"item": index,
+                "source_ids": [sid for sid in ids if sid in available], "checks": checks})
+            labels = list(dict.fromkeys(check["code"] + ("(" + check["field"] + ")" if "field" in check else "")
+                                        for check in checks))
+            warnings.append(f"Item {index} was not published: " + ", ".join(labels) + ".")
             continue
         for sid, count in local_counts.items():
             quote_words[sid] += count
         result = {k: v for k, v in item.items() if k != "evidence"}
         result["sources"] = [available[sid].record() for sid in ids]
-        # Prefer accessible substantive material over a paywalled preview.
         result["sources"].sort(key=lambda a: ("Paywalled" in a["access"], "excerpt only" in a["access"].lower(), a["source_kind"] != "official"))
         selected.append(result)
         used_sources.update(ids)
         used_events.add(item["event_key"])
+    diagnostics["accepted_items"] = len(selected)
     return selected, warnings
 
 
 def edit(articles: list[Article], report: dict, cfg: dict, store, now, request_id: str, api, api_key: str) -> dict:
+    analysis = analysis_record()
+
+    def fail(reason: str, stage: str, status: str = "links_only", warnings: list[str] | None = None) -> dict:
+        analysis["status"] = stage
+        return fallback([] if status == "collection_failure" else articles, reason, status,
+                        warnings=warnings, analysis=analysis)
+
     if report["fatal_collection"]:
-        return fallback([], "Collection failed or coverage was too incomplete to assess the news. This is not a quiet-day confirmation.", "collection_failure")
+        return fail("Collection failed or coverage was too incomplete to assess the news. This is not a quiet-day confirmation.",
+                    "collection_failed", "collection_failure")
     if not articles:
-        return {"status": "quiet", "items": [], "links": [], "note": "No material developments were identified in the sources and publication window checked.", "warnings": [], "assessed_ids": []}
+        analysis["status"] = "no_candidates"
+        return {"status": "quiet", "items": [], "links": [],
+                "note": "No material developments were identified in the sources and publication window checked.",
+                "warnings": [], "assessed_ids": [], "analysis": analysis}
     usable = [a for a in articles if len(a.excerpt) >= 140]
+    analysis["candidates_with_usable_text"] = len(usable)
     if not usable:
-        return fallback(articles, "Only headlines or insufficient previews were available. These links have not been assessed or summarised.")
+        return fail("Only headlines or insufficient previews were available. These links have not been assessed or summarised.", "insufficient_text")
     if not api_key:
-        return fallback(articles, "OpenAI is not configured. Source links are provided without generated analysis.")
+        return fail("OpenAI is not configured. Source links are provided without generated analysis.", "missing_api_key")
     payload = make_payload(usable, store.data["history"], cfg)
     if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > cfg["max_model_request_bytes"]:
-        return fallback(articles, "The input exceeded the configured request-size guard; no paid model request was made.")
+        return fail("The input exceeded the configured request-size guard; no paid model request was made.", "request_size_guard")
     budget = Budget(store, cfg, now)
     permitted, reason = budget.reserve(request_id, payload)
     if not permitted:
-        return fallback(articles, reason)
+        return fail(reason, "budget_or_repeat_guard")
+    analysis["model_requested"] = True
+    analysis["candidates_submitted"] = len(usable)
     try:
         response = api.call("OpenAI", "POST", "https://api.openai.com/v1/responses", api_key, payload)
     except APIError as error:
-        return fallback(articles, f"Analysis unavailable ({error}). No automatic paid retry was made.")
+        return fail(f"Analysis unavailable ({error}). No automatic paid retry was made.", "api_error")
     budget.settle(request_id, response.get("usage", {}))
+    if response.get("status") != "completed":
+        return fail("The model response did not complete. These source links are unassessed; no unsupported summary was sent.", "response_incomplete")
     try:
-        if response.get("status") != "completed":
-            raise ValueError("Model response was incomplete")
         text = "".join(part.get("text", "") for row in response.get("output", []) if isinstance(row, dict)
                        for part in row.get("content", []) if isinstance(part, dict) and part.get("type") == "output_text")
-        selected, warnings = validate_selection(json.loads(text), usable, store.data["history"], cfg)
+        data = json.loads(text)
     except (ValueError, KeyError, TypeError):
-        return fallback(articles, "Analysis failed validation. These source links are unassessed; no unsupported summary was sent.")
+        return fail("Analysis could not be decoded. These source links are unassessed; no unsupported summary was sent.", "response_not_json")
+    try:
+        selected, warnings = validate_selection(data, usable, store.data["history"], cfg, analysis)
+    except (ValueError, KeyError, TypeError):
+        stage = "schema_invalid" if analysis["status"] == "schema_invalid" else "validation_error"
+        return fail("Analysis failed validation. These source links are unassessed; no unsupported summary was sent.", stage)
     if not selected and warnings:
-        return fallback(articles, "Proposed summaries failed evidence checks. Source links are provided without generated analysis.")
+        return fail("Proposed summaries failed evidence or format checks. Source links are provided without generated analysis.",
+                    "validation_failed", warnings=warnings)
+    analysis["status"] = "completed_with_rejections" if warnings else "completed"
+    # Failed proposals must remain eligible for a future run rather than being
+    # silently marked as fully assessed. Non-selected candidates were assessed.
+    rejected_ids = {sid for entry in analysis["validation_errors"] for sid in entry.get("source_ids", [])}
     result = {"status": "briefing" if selected else "quiet", "items": selected, "links": [],
               "note": "" if selected else "No material developments were identified in the sources and publication window checked.",
-              "warnings": warnings, "assessed_ids": [a.id for a in usable]}
+              "warnings": warnings, "assessed_ids": [a.id for a in usable if a.id not in rejected_ids], "analysis": analysis}
     if len(usable) != len(articles):
         result["warnings"].append(f"{len(articles) - len(usable)} candidate items lacked enough source text for analysis.")
     return result

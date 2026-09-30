@@ -211,7 +211,9 @@ def collect(client: PublicClient, sources: list[dict], aliases: list[str], seen:
             now: datetime, cfg: dict, initialised: bool) -> tuple[list[Article], dict]:
     active = [s for s in sources if s.get("enabled")]
     report = {"sources": [], "warnings": [], "fetched_entries": 0, "undated_omitted": 0,
-              "future_omitted": 0, "preselected": 0, "candidate_overflow": 0, "article_fetch_failures": 0}
+              "future_omitted": 0, "preselected": 0, "candidate_overflow": 0, "article_fetch_failures": 0,
+              "old_omitted": 0, "old_after_fetch": 0, "score_omitted": 0,
+              "already_seen_omitted": 0, "candidate_diagnostics": []}
     items: dict[str, Article] = {}
 
     def one(source):
@@ -233,6 +235,7 @@ def collect(client: PublicClient, sources: list[dict], aliases: list[str], seen:
             report["fetched_entries"] += len(found)
             for item in found:
                 items.setdefault(item.id, item)
+    report["unique_entries"] = len(items)
     lookback = cfg["lookback_days"] if initialised else cfg["initial_lookback_days"]
     cutoff = now - timedelta(days=lookback)
     report["window_start"] = iso(cutoff)
@@ -244,14 +247,18 @@ def collect(client: PublicClient, sources: list[dict], aliases: list[str], seen:
             report["future_omitted"] += 1
             continue
         if published and published < cutoff:
+            report["old_omitted"] += 1
             continue
         # Unchanged already-reviewed records do not consume article/model requests.
         previous = seen.get(item.id, {})
         if previous.get("feed_fingerprint") == item.fingerprint:
+            report["already_seen_omitted"] += 1
             continue
         item.score = score_article(item, aliases)
         if item.score >= cfg["candidate_min_score"]:
             candidates.append(item)
+        else:
+            report["score_omitted"] += 1
     candidates.sort(key=lambda a: (-a.score, a.id))
     report["preselected"] = len(candidates)
     # Reserve up to four EU slots when relevant candidates exist; never pad with
@@ -260,6 +267,7 @@ def collect(client: PublicClient, sources: list[dict], aliases: list[str], seen:
     rest = [a for a in candidates if a.id not in {x.id for x in eu}]
     candidates = (eu + rest)[:cfg["max_candidates"]]
     report["candidate_overflow"] = max(0, report["preselected"] - len(candidates))
+    report["article_fetch_attempts"] = len(candidates)
     feed_fingerprints = {a.id: a.fingerprint for a in candidates}
 
     def expand(item):
@@ -274,19 +282,31 @@ def collect(client: PublicClient, sources: list[dict], aliases: list[str], seen:
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         for item, failed in pool.map(expand, candidates):
             report["article_fetch_failures"] += int(failed)
+            candidate = {"id": item.id, "title": item.title, "source": item.source,
+                         "region": item.region, "score": item.score, "published": item.published,
+                         "access": item.access, "outcome": "eligible"}
+            report["candidate_diagnostics"].append(candidate)
             published = parse_date(item.published)
             if not published:
+                candidate["outcome"] = "undated"
                 report["undated_omitted"] += 1
                 continue
             if published < cutoff:
+                report["old_omitted"] += 1
+                report["old_after_fetch"] += 1
+                candidate["outcome"] = "old_after_fetch"
                 continue
             if published > now + timedelta(minutes=5):
+                candidate["outcome"] = "future_after_fetch"
                 report["future_omitted"] += 1
                 continue
             item.refresh_fingerprint()
             if seen.get(item.id, {}).get("fingerprint") == item.fingerprint:
+                candidate["outcome"] = "already_seen"
+                report["already_seen_omitted"] += 1
                 continue
             expanded.append(item)
+    report["eligible_candidates"] = len(expanded)
     report["feed_fingerprints"] = feed_fingerprints
     report["healthy_sources"] = sum(s["status"] == "ok" for s in report["sources"])
     report["total_sources"] = len(active)
