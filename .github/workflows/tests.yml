@@ -1,0 +1,28 @@
+name: Tests
+
+on:
+  push:
+    branches-ignore: [briefing-state]
+    paths: ['briefing/**', 'config/**', 'tests/**', 'requirements.txt', '.github/workflows/**']
+  pull_request:
+    paths: ['briefing/**', 'config/**', 'tests/**', 'requirements.txt', '.github/workflows/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+      - run: python -m briefing demo --output output/demo
