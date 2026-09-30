@@ -38,6 +38,8 @@ remains untrusted data, not executable instructions.
 
 ## Installation
 
+**Already applied in the complete recovery archive.** When restoring from `daily-komotic-briefing-complete.zip`, follow [RECOVERY.md](RECOVERY.md) instead. The instructions below describe the earlier changed-files patch only; do not apply it again.
+
 1. Keep `NEWSLETTER_ENABLED=false` while validating the update.
 2. Work on the repository's default branch with local changes reviewed or committed.
 3. Extract the patch ZIP. Merge the contents of its `daily-komotic-briefing` folder

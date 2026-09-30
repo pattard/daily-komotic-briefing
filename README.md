@@ -2,6 +2,8 @@
 
 A private, source-grounded comics-industry newsletter for Komotic. Python application, GitHub Actions scheduler, OpenAI summarisation and Resend delivery. No separate database or paid news-search service.
 
+**Full recovery package:** this archive contains the complete original application plus the diagnostics fix, already applied. It is not a changed-files patch. For restoring an accidentally replaced directory, start with [docs/RECOVERY.md](docs/RECOVERY.md). No additional patch is required.
+
 **The schedule is disabled until the repository variable `NEWSLETTER_ENABLED` is set to `true`. Installing these files alone does not send a scheduled email.**
 
 ## Our configuration
@@ -22,7 +24,7 @@ The automated pipeline checks selected feeds and announcement pages, not the ent
 
 Extract the archive and copy the **contents** of its `daily-komotic-briefing` folder into the root of the existing repository. Include the hidden `.github` directory, `.gitignore` and `.env.example`. Do not create a second nested `daily-komotic-briefing` folder inside the repository.
 
-Keep the existing `.git` directory and the earlier `.github/workflows/setup-check.yml`. This package does not replace that setup-check file. Review conflicts with an existing README, `.gitignore` or other files before committing.
+Keep the existing `.git` directory, local credentials and runtime state. If an earlier `.github/workflows/setup-check.yml` is still present, preserve it too: that optional standalone workflow was not in either saved package and is not required by the included newsletter or Tests workflows. Recover it from existing Git history if needed. Review conflicts with any user-customised files before committing.
 
 Using a local checkout is the most reliable way to include hidden files. After copying:
 
@@ -76,7 +78,9 @@ Download the run's artifact and open:
 | `newsletter.txt` | Plain-text email alternative |
 | `report.json` | Source availability, coverage warnings and estimated model spending |
 
-Check relevance, source links, factual summaries, implications and warning messages. A green workflow only means the software completed: `report.json` can still show `collection_failure` or `links_only`. Do not mistake a graceful fallback for successful editorial processing.
+Check relevance, source links, factual summaries, implications and warning messages. With the diagnostics fix, reports explicitly record the run mode and analysis outcome. A `check-sources` run produces only `report.json`, with `edition_status: not_generated` and `analysis.status: not_requested`. It does not generate a newsletter. See [docs/DIAGNOSTICS_FIX.md](docs/DIAGNOSTICS_FIX.md) for validation codes.
+
+A green workflow only means the software completed: `report.json` can still show `collection_failure` or `links_only`. Do not mistake a graceful fallback for successful editorial processing.
 
 The initial registry contains 10 enabled source endpoints and two disabled candidates. They have **not been tested from our GitHub runner yet**. Some RSS endpoints were recognisable in browser research but could not be parsed by that browser tool. Run **`check-sources`** for an independent, zero-model-cost source check. Failed or blocked sources appear in the report; the collector does not bypass their restrictions.
 
@@ -167,6 +171,8 @@ tests/                          Offline parser, budget, editor and workflow test
 docs/OPERATIONS.md              Monitoring, cost, recovery and maintenance
 docs/SOURCES.md                 Source verification notes and known gaps
 docs/VALIDATION.md              What was and was not tested
+docs/DIAGNOSTICS_FIX.md         Report fields, rejection codes and fix history
+docs/RECOVERY.md                Safe restoration from the complete archive
 ```
 
 ## Provider documentation
