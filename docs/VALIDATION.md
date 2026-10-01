@@ -2,6 +2,21 @@
 
 Build date: 30-09-2026.
 
+## Source-report relevance corrections (01-10-2026)
+
+- Reproduced the Comic Social false exclusion and GlobalComix false expansion
+  signal with exact report headlines before applying the fix.
+- Recognise “launch of” platform/app objects and restrict “global” to the whole
+  word or “globally”. No broad relaxation of routine-title filtering.
+- Full offline suite: 185 tests passed under Python 3.12.13, including all
+  previous 177 tests and eight new report-based regression tests.
+- Collector regression confirms the exact Comic Social headline enters the
+  fetch queue with no feed excerpt, while insufficient article text still
+  prevents a model request and summary.
+- Reports now use `relevance_version: 2`; `selection_version: 2` is unchanged.
+- No live collection, paid model request, email, monitoring or GitHub settings
+  change was made. Rerun `check-sources` before the next live preview.
+
 ## Relevance and English-output update (01-10-2026)
 
 - Full offline suite: 177 tests passed under local Python 3.12.13, including all

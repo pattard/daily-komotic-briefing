@@ -54,7 +54,9 @@ POSITIVE = {
         r"recibe|ronda\w*)\b",
         r"\b(?:funding|capital|financing|investment|series [a-f]|financement|"
         r"fonds|inversion|financiacion)\b"),
-    "platform_launch_change": rf"{LAUNCH}\s+{MODIFIERS}{PLATFORM}|"
+    # Recognise noun phrases such as 'launch of a dedicated app' while still
+    # requiring a platform object, rather than a title released on a platform.
+    "platform_launch_change": rf"{LAUNCH}\s+(?:of\s+)?{MODIFIERS}{PLATFORM}|"
                               rf"\b(?:new|nouvelle|nouveau|nueva|nuevo)\s+{MODIFIERS}{PLATFORM}|"
                               rf"{PLATFORM}\s+(?:launches|debuts|opens|goes live)"
                               r"(?=\s*(?:$|[.,;:]|\btoday\b|\btomorrow\b))",
@@ -95,7 +97,8 @@ POSITIVE = {
     "market_expansion": near(
         r"\b(?:expand\w*|enter\w*|launch\w*|market entry|expansion|"
         r"etend\w*|arrive\w*|debarqu\w*|lanc\w*|entra\w*|llega\w*|lanz\w*)\b",
-        r"\b(?:markets?|countries|international\w*|global\w*|Europe|European|"
+        # 'GlobalComix' is a company name, not evidence of global expansion.
+        r"\b(?:markets?|countries|international\w*|global(?:ly)?|Europe|European|"
         r"UK|US|Canada|Britain|English[ -]language|EU|marches?|pays|"
         r"mercados?|paises|Reino Unido|Etats[ -]Unis|Estados Unidos)\b"),
     "publishing_business": rf"(?:{LAUNCH}\s+{MODIFIERS}|\bnew\s+(?:comics?\s+)?)"

@@ -215,7 +215,7 @@ def collect(client: PublicClient, sources: list[dict], aliases: list[str], seen:
               "future_omitted": 0, "preselected": 0, "candidate_overflow": 0, "article_fetch_failures": 0,
               "old_omitted": 0, "old_after_fetch": 0, "score_omitted": 0,
               "already_seen_omitted": 0, "candidate_diagnostics": [],
-              "relevance_version": 1, "relevance_after_fetch_omitted": 0,
+              "relevance_version": 2, "relevance_after_fetch_omitted": 0,
               "relevance_exclusion_counts": {}, "relevance_exclusions": []}
     items: dict[str, Article] = {}
 

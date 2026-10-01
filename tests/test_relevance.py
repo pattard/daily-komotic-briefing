@@ -1,4 +1,8 @@
-"""Editorial regression fixtures are fictional and require no external services."""
+"""Offline editorial regressions, including exact headlines from a source report.
+
+Headlines from the report are tested without invented article text. Other
+fixtures and any supplied body text are fictional. No external services are used.
+"""
 from __future__ import annotations
 
 import copy
@@ -65,6 +69,53 @@ class RelevanceTests(unittest.TestCase):
         self.check('Comic Social Announces Launch of a Dedicated App Built exclusively for Comic Readers',
                    'Comic Social launches a dedicated app for comic readers with a digital reading catalogue.',
                    True, 'platform_launch_change')
+
+    def test_report_comic_social_headline_qualifies_without_excerpt(self):
+        self.check('Comic Social Announces Launch of a Dedicated App Built exclusively for Comic Readers',
+                   '', True, 'platform_launch_change')
+
+    def test_launch_of_a_platform_wording(self):
+        for title in ['PanelPort announces the launch of a new digital comics platform',
+                      'PanelPort announces introduction of a new reading app']:
+            with self.subTest(title=title):
+                self.check(title, '', True, 'platform_launch_change')
+
+    def test_launch_of_a_title_on_a_platform_still_excluded(self):
+        for title in ['WEBTOON announces launch of a new comic series on its platform',
+                      'GlobalComix announces the launch of a new graphic novel']:
+            with self.subTest(title=title):
+                self.check(title, '', False)
+
+    def test_report_globalcomix_headlines_do_not_imply_market_expansion(self):
+        titles = [
+            'DC Day-and-Date and Back Catalog Arrive on GlobalComix September 17',
+            'IDW Arrives on GlobalComix!',
+            'GlobalComix & Comix Wellspring Launch Creator-First Print-on-Demand Program',
+            'Sidemen Clothing and GlobalComix Launch Exclusive Crossover Promotion',
+            'DC Has Arrived on GlobalComix',
+            'Vault Comics Arrives on GlobalComix with Exclusive Vertical Comics',
+            'Kodansha Day-and-Date arrives on GlobalComix',
+        ]
+        for title in titles:
+            with self.subTest(title=title):
+                a = article(SOURCE, title, 'https://news.example/story')
+                score_article(a, ALIASES)
+                self.assertNotIn('market_expansion', a.relevance['positive_signals'])
+
+    def test_report_crossover_promotion_is_excluded_without_material_details(self):
+        self.check('Sidemen Clothing and GlobalComix Launch Exclusive Crossover Promotion', '', False)
+
+    def test_globalcomix_real_market_expansion_still_qualifies(self):
+        for title in ['GlobalComix launches in Canada', 'GlobalComix expands into the UK',
+                      'GlobalComix launches globally', 'GlobalComix announces global expansion',
+                      'GlobalComix expands internationally']:
+            with self.subTest(title=title):
+                self.check(title, '', True, 'market_expansion')
+
+    def test_company_names_with_global_prefix_do_not_imply_expansion(self):
+        for title in ['GlobalComix launches a promotion', 'GlobalPanel launches a promotion']:
+            with self.subTest(title=title):
+                self.check(title, '', False)
 
     def test_platform_shutdown(self):
         self.check('Madefire shuts down', 'The platform is closing and the reading service will cease operations.',
@@ -243,6 +294,27 @@ class RelevanceTests(unittest.TestCase):
         self.assertFalse(diagnostic['business_materiality'])
         self.assertEqual(diagnostic['exclusion_reason'], 'routine_without_material_development')
         self.assertNotIn(a.excerpt, json.dumps(collection))
+
+    def test_report_app_launch_enters_fetch_queue_without_feed_excerpt(self):
+        title = 'Comic Social Announces Launch of a Dedicated App Built exclusively for Comic Readers'
+        a = item(title, '', url='https://news.example/comic-social')
+        # Simulate a public description only. Selection should still admit the
+        # article to the queue; the editor's usable-text guard remains separate.
+        articles, collection = self.collect_rows([(a, '<meta name="description" content="A reading app announcement.">')])
+        self.assertEqual([row.id for row in articles], [a.id])
+        self.assertEqual(collection['article_fetch_attempts'], 1)
+        self.assertEqual(collection['score_omitted'], 0)
+        self.assertEqual(collection['relevance_version'], 2)
+        diagnostic = collection['candidate_diagnostics'][0]
+        self.assertEqual(diagnostic['outcome'], 'eligible')
+        self.assertIn('platform_launch_change', diagnostic['positive_signals'])
+        self.assertNotIn('market_expansion', diagnostic['positive_signals'])
+        self.assertTrue(diagnostic['business_materiality'])
+        api = FakeAPI()
+        value = edit(articles, collection, settings(), MemoryStore(), NOW, 'short-text', api, 'key')
+        self.assertEqual(value['status'], 'links_only')
+        self.assertEqual(value['analysis']['status'], 'insufficient_text')
+        self.assertFalse(api.calls)
 
     def test_full_page_relevance_rejection_backfills_next_candidate(self):
         bad = item('Creator spotlight', 'The company acquires a rival platform and introduces new creator publishing tools '

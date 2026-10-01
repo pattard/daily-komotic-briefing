@@ -54,7 +54,16 @@ the next source-check report and early editions before tuning thresholds.
 ## Relevance diagnostics
 
 `selection_version: 2` continues to describe the existing backfill algorithm.
-New `relevance_version: 1` identifies the scoring rules separately.
+`relevance_version: 2` identifies the corrected scoring rules separately.
+Version 1 was the initial relevance-filter implementation.
+
+The user's first source-check report exposed two matching errors. Version 2
+recognises “launch of a dedicated app” even without a feed excerpt, and matches
+the whole words “global”/“globally” rather than treating “GlobalComix” as a
+market-expansion signal. Routine title launches are still excluded; genuine
+market-entry wording still qualifies. Exact report headlines and the collector
+queue path are covered by regression tests. Headline eligibility still does not
+permit summarisation without enough usable source text.
 
 Fetched `candidate_diagnostics` now also contain:
 
@@ -110,10 +119,12 @@ remain English.
 
 ## Verification and next steps
 
-The full offline suite passes: **177 tests**, including the existing 116 tests
-and 61 new tests for relevance, post-fetch replacement, report bounds, French/
+The full offline suite passes: **185 tests**, including the existing 116 tests
+and 69 new tests for relevance, post-fetch replacement, report bounds, French/
 Spanish sources with English copy, exact original-language evidence, translated
 quote rejection, non-English output rejection, and fallback/quiet/failure copy.
+Eight of these tests cover the follow-up report fixes, including headline-only
+qualification and preservation of the editor's insufficient-text guard.
 Tests use simulated model responses, not live translation. Local runtime:
 Python 3.12.13; the GitHub workflow continues to use Python 3.13.
 
