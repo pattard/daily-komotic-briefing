@@ -84,6 +84,8 @@ A green workflow only means the software completed: `report.json` can still show
 
 Relevance filtering now requires a concrete strategic development before model submission, scores specific signals once each, and reassesses retrieved article text. Routine reviews, lists, interviews, crowdfunding and title promotions receive penalties; watchlist names alone cannot qualify. The report includes signal labels and a bounded sample of relevance exclusions. Reader-facing copy must be English, with offline language validation; evidence stays verbatim in the original language. Fallback links use English labels without attempting another paid translation. See [docs/EDITORIAL_FILTERING.md](docs/EDITORIAL_FILTERING.md).
 
+Evidence selection now offers bounded, exact source spans in the response schema, paired with their source IDs. Independent quote validation remains strict. Reports include evidence-option counts and safe mismatch reasons, not rejected quotes or article bodies. See [docs/EVIDENCE_SELECTION.md](docs/EVIDENCE_SELECTION.md). After deploying a fix, start a **new** preview workflow rather than rerunning an old run: prepared editions are cached by run ID.
+
 The initial registry contains 10 enabled source endpoints and two disabled candidates. The supplied source-check report dated 30-09-2026 records nine successful endpoints and an unavailable Publishers Weekly endpoint. That single run is not a guarantee of continuing availability or editorial quality. Initial browser research recognised several RSS endpoints without being able to parse them. Run **`check-sources`** for an independent, zero-model-cost source check. Failed or blocked sources appear in the report; the collector does not bypass their restrictions.
 
 ## 4. Send a real test edition
@@ -164,6 +166,7 @@ python -m briefing check-sources
 briefing/                       Collector, editor, renderer, state and delivery
 briefing/relevance.py           Material-development signals and routine-content penalties
 briefing/language.py            Deterministic offline English-output check
+briefing/evidence.py            Original-language quote options and safe mismatch diagnostics
 config/settings.json            Limits, model and defaults
 config/sources.json             Enabled feeds/pages and disabled candidates
 config/watchlist.json           Names/aliases; no assumed current company statuses

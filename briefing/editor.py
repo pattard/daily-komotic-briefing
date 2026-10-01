@@ -7,6 +7,7 @@ from collections import defaultdict
 from jsonschema import Draft202012Validator
 
 from .common import ROOT, clean, load_json
+from .evidence import quote_mismatch, quote_options, submitted_context
 from .http import APIError
 from .language import non_english_language
 from .sources import Article
@@ -15,7 +16,8 @@ from .state import Budget
 
 def analysis_record(status: str = "not_started") -> dict:
     """Public diagnostics: counts and check codes, never raw model output or quotes."""
-    return {"status": status, "model_requested": False, "candidates_submitted": 0,
+    return {"status": status, "evidence_version": 1, "evidence_options_offered": 0,
+            "model_requested": False, "candidates_submitted": 0,
             "proposed_items": 0, "accepted_items": 0, "rejected_items": 0,
             "skipped_items": 0, "validation_errors": [], "skipped": []}
 
@@ -33,13 +35,29 @@ def make_payload(articles: list[Article], history: list[dict], cfg: dict) -> dic
     material = [{"id": a.id, "title": a.title, "source": a.source, "source_kind": a.source_kind,
                  "region": a.region, "language": a.language, "published": a.published,
                  "access": a.access, "excerpt": a.excerpt[:cfg["model_excerpt_chars"]]} for a in articles]
+    schema = load_json(ROOT / "config/briefing.schema.json")
+    fields = schema["properties"]["items"]["items"]["properties"]
+    branches = []
+    for a in articles:
+        quotes = quote_options(a, cfg["model_excerpt_chars"])
+        if not quotes:
+            raise ValueError("Source has no usable verbatim evidence spans")
+        branches.append({"type": "object", "properties": {
+            "source_id": {"type": "string", "enum": [a.id]},
+            "quote": {"type": "string", "enum": quotes,
+                      "description": "Choose an exact ORIGINAL-language source span supporting this event. Never translate."}},
+            "required": ["source_id", "quote"], "additionalProperties": False})
+    if not branches:
+        raise ValueError("Evidence-constrained requests require at least one source")
+    fields["evidence"]["items"] = {"anyOf": branches}
+    fields["source_ids"]["items"]["enum"] = [a.id for a in articles]
     return {"model": cfg["model"], "store": False, "max_output_tokens": cfg["max_output_tokens"],
             "input": [
                 {"role": "system", "content": editorial + "\n\nTrusted Komotic context:\n" + profile},
                 {"role": "user", "content": json.dumps({"untrusted_source_material": material,
                     "previously_reported_events": history[-35:]}, ensure_ascii=False)}],
             "text": {"format": {"type": "json_schema", "name": "komotic_briefing", "strict": True,
-                                "schema": load_json(ROOT / "config/briefing.schema.json")}}}
+                                "schema": schema}}}
 
 
 def number_tokens(text: str) -> set[str]:
@@ -107,9 +125,10 @@ def validate_selection(data: dict, articles: list[Article], history: list[dict],
             if count < 4:
                 checks.append({"code": "quote_too_short", "source_id": sid, "actual_words": count})
                 continue
-            context = clean(available[sid].title + " " + available[sid].excerpt[:cfg["model_excerpt_chars"]])
+            context = submitted_context(available[sid], cfg["model_excerpt_chars"])
             if quote not in context:
-                checks.append({"code": "quote_not_found", "source_id": sid})
+                checks.append({"code": "quote_not_found", "source_id": sid,
+                               **quote_mismatch(quote, available[sid], articles, cfg["model_excerpt_chars"])})
             if local_counts[sid] + quote_words[sid] > 25:
                 checks.append({"code": "quote_word_limit_exceeded", "source_id": sid,
                                "actual_words": local_counts[sid] + quote_words[sid], "maximum_words": 25})
@@ -161,6 +180,11 @@ def edit(articles: list[Article], report: dict, cfg: dict, store, now, request_i
     analysis["candidates_with_usable_text"] = len(usable)
     if not usable:
         return fail("Only headlines or insufficient previews were available. These links have not been assessed or summarised.", "insufficient_text")
+    usable = [a for a in usable if quote_options(a, cfg["model_excerpt_chars"])]
+    analysis["candidates_with_evidence_options"] = len(usable)
+    if not usable:
+        return fail("No usable verbatim source spans were available for evidence selection. Source links have not been assessed or summarised.",
+                    "insufficient_evidence")
     if not api_key:
         return fail("OpenAI is not configured. Source links are provided without generated analysis.", "missing_api_key")
     payload = make_payload(usable, store.data["history"], cfg)
@@ -172,6 +196,8 @@ def edit(articles: list[Article], report: dict, cfg: dict, store, now, request_i
         return fail(reason, "budget_or_repeat_guard")
     analysis["model_requested"] = True
     analysis["candidates_submitted"] = len(usable)
+    branches = payload["text"]["format"]["schema"]["properties"]["items"]["items"]["properties"]["evidence"]["items"]["anyOf"]
+    analysis["evidence_options_offered"] = sum(len(b["properties"]["quote"]["enum"]) for b in branches)
     try:
         response = api.call("OpenAI", "POST", "https://api.openai.com/v1/responses", api_key, payload)
     except APIError as error:

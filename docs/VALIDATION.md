@@ -2,6 +2,26 @@
 
 Build date: 30-09-2026.
 
+## Preview evidence-selection correction (01-10-2026)
+
+- The supplied preview reported `quote_not_found`, with one proposal rejected
+  and an honest English links-only fallback. It did not retain the failed quote,
+  so its precise mismatch mechanism cannot be reconstructed from the artifacts.
+- Response-schema evidence choices now bind exact original-language body-text
+  spans to each source ID. The existing independent validator remains strict;
+  no approximate matching, quote repair or paid retry was introduced.
+- Safe diagnostics add evidence-option counts and fixed mismatch reasons without
+  exporting model quotes or source bodies. Reports use `evidence_version: 1`.
+- Full offline suite: **206 tests passed** under Python 3.12.13, including all
+  previous 185 tests and 21 new evidence-selection regression tests. French and
+  Spanish evidence is unchanged; reader-facing English checks still pass.
+- Request-size and enum bounds were checked with a 20-source fixture. The
+  spending guard still accounts for the complete request, including its schema.
+- No live model request, email, monitoring, schedule or GitHub settings change
+  was made. A new live preview workflow is required before send-test; rerunning
+  the old workflow can reuse its saved edition. See
+  [EVIDENCE_SELECTION.md](EVIDENCE_SELECTION.md) for trade-offs and acceptance checks.
+
 ## Source-report relevance corrections (01-10-2026)
 
 - Reproduced the Comic Social false exclusion and GlobalComix false expansion

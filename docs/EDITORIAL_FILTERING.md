@@ -96,6 +96,11 @@ the existing word limits and source-ID checks. Translating a quote causes
 `quote_not_found`; accents, case and punctuation are not “repaired”. Numeric
 checks remain unchanged. Evidence is removed before publication.
 
+The response schema now restricts evidence choices to bounded, exact body-text
+spans, paired with their source IDs. The independent validator remains strict;
+this prevents free-composed evidence without accepting approximate matches.
+See [EVIDENCE_SELECTION.md](EVIDENCE_SELECTION.md) for diagnostics and limits.
+
 `briefing/language.py` uses pinned `langdetect==1.0.9`, locally, with a seeded
 detector for reproducible results. Each generated field with at least four
 linguistic words is checked; a non-English detection with probability at least
@@ -119,12 +124,14 @@ remain English.
 
 ## Verification and next steps
 
-The full offline suite passes: **185 tests**, including the existing 116 tests
-and 69 new tests for relevance, post-fetch replacement, report bounds, French/
+The full offline suite passes: **206 tests**, including the existing 116 tests
+and 90 new tests for relevance, post-fetch replacement, report bounds, French/
 Spanish sources with English copy, exact original-language evidence, translated
 quote rejection, non-English output rejection, and fallback/quiet/failure copy.
 Eight of these tests cover the follow-up report fixes, including headline-only
 qualification and preservation of the editor's insufficient-text guard.
+Twenty-one further tests cover source-specific evidence choices, original-language
+spans, safe mismatch diagnostics, request-size bounds and retained quote limits.
 Tests use simulated model responses, not live translation. Local runtime:
 Python 3.12.13; the GitHub workflow continues to use Python 3.13.
 

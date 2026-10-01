@@ -168,7 +168,8 @@ class LanguageTests(unittest.TestCase):
         fields = payload['text']['format']['schema']['properties']['items']['items']['properties']
         for field in ['headline', 'summary', 'implication', 'action', 'new_development']:
             self.assertIn('English', fields[field]['description'])
-        self.assertIn('Never translate', fields['evidence']['items']['properties']['quote']['description'])
+        for branch in fields['evidence']['items']['anyOf']:
+            self.assertIn('Never translate', branch['properties']['quote']['description'])
 
     def test_short_names_and_english_prose_are_not_rejected(self):
         for text in ['WEBTOON', 'GlobalComix and izneo', 'Review the creator terms.',
