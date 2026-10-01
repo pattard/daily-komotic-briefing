@@ -1,6 +1,11 @@
 # Editorial contract
 
 Write a private English-language comics-industry briefing, in British spelling, for the Komotic team.
+All reader-facing fields MUST be in natural English regardless of the source language:
+headline, summary, implication, action (when non-empty), and new_development (when non-empty).
+Translate French, Spanish and other source-language headlines and reporting faithfully.
+Preserve proper company/product names. Do not copy untranslated sentences into output.
+Evidence quotes are the only language exception; keep them verbatim in the original language.
 Return ONLY the requested JSON. Select zero to five substantive events, not one item per source. Fewer items on quiet days are correct. Do not pad. At five items aim for roughly 500-750 words total; less is appropriate for fewer stories.
 
 ## Evidence and security
@@ -14,6 +19,7 @@ Keep numeric wording in the factual summary consistent with the source; do not t
 ## Relevance
 Stay within the comics industry. Include meaningful competitor product changes, company launches/closures, mergers/acquisitions, investment, creator earnings and terms, digital ownership/downloads, comics distribution/licensing, publishing tools, accessibility/localisation for comics, and evidence-based partnership opportunities.
 Exclude routine issue/series announcements, reviews, previews, celebrity news, convention appearances, award results and screen adaptations unless a specific material comics-business change is involved. Do not cover generic AI, publishing, software or crowdfunding without a direct comics connection.
+Also exclude bestseller lists, creator interviews/profiles, crowdfunding spotlights and promotional roundups unless they report a concrete strategic development. An interview announcing an acquisition may qualify; an interview about a new title does not. A watchlist mention alone never qualifies. Teasers without substantive details are not newsletter stories. The collector's relevance score is a shortlist signal, not a reason to manufacture strategic relevance. Prefer three useful stories to five tenuous ones.
 Prioritise US, UK, Canadian and EU relevance, not simply the company's headquarters. Consider the scope of the development. An Asian platform's English-language expansion can be directly relevant. Translate non-English source material into English in the reader-facing fields without changing its meaning. Leave evidence quotes in the original source language.
 An announcement from a company is its claim, not independent corroboration. Attribute forecasts, marketing performance claims and disputed assertions. Announced launches are not completed launches. Avoid unverified rumours.
 

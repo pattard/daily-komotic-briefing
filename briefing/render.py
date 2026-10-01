@@ -71,8 +71,11 @@ def render(briefing: dict, report: dict, cfg: dict, now: datetime, test: bool = 
         lines.extend(["SOURCE LINKS, NOT ASSESSED SUMMARIES", ""])
         for source in briefing["links"]:
             label = f"{source['source']} | {short_date(source['published'])} | {source['access']}"
-            blocks.append(f'<p style="line-height:1.5"><a href="{esc(source["url"])}" style="color:#235b79">{esc(source["title"])}</a><br><span style="font-size:12px;color:#536476">{esc(label)}</span></p>')
-            lines.extend([source["title"], label, source["url"], ""])
+            # Analysis may have failed or never run. Do not translate unassessed
+            # headlines, or copy foreign-language titles into English output.
+            headline = "Read source article"
+            blocks.append(f'<p style="line-height:1.5"><a href="{esc(source["url"])}" style="color:#235b79">{headline}</a><br><span style="font-size:12px;color:#536476">{esc(label)}</span></p>')
+            lines.extend([headline, label, source["url"], ""])
     warnings = report.get("warnings", []) + briefing.get("warnings", [])
     coverage = f"Coverage: {report.get('healthy_sources', 0)}/{report.get('total_sources', 0)} configured sources checked successfully."
     count = len(briefing.get("assessed_ids", []))

@@ -8,6 +8,7 @@ from jsonschema import Draft202012Validator
 
 from .common import ROOT, clean, load_json
 from .http import APIError
+from .language import non_english_language
 from .sources import Article
 from .state import Budget
 
@@ -88,6 +89,9 @@ def validate_selection(data: dict, articles: list[Article], history: list[dict],
                                "actual_words": actual, "maximum_words": maximum})
             if re.search(r"https?://|www\.", item[field], re.I):
                 checks.append({"code": "generated_url", "field": field})
+            detected = non_english_language(item[field])
+            if detected:
+                checks.append({"code": "non_english_output", "field": field, "language": detected})
         if not item["evidence"]:
             checks.append({"code": "missing_evidence"})
         cited = set()

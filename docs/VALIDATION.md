@@ -2,6 +2,23 @@
 
 Build date: 30-09-2026.
 
+## Relevance and English-output update (01-10-2026)
+
+- Full offline suite: 177 tests passed under local Python 3.12.13, including all
+  116 existing tests and 61 new relevance/language regression tests.
+- Tests cover all requested routine exclusions and strategic inclusions,
+  post-fetch relevance backfilling and bounded exclusion diagnostics.
+- French/Spanish source fixtures retain original-language text/evidence and
+  produce English previews from simulated model responses. Translated evidence
+  and confidently detected non-English output are rejected without paid retries.
+- Existing date, evidence, unsupported-number, duplicate/history, budget,
+  scheduling, delivery/idempotency and Healthchecks tests continue to pass.
+- No live collector, model, email, monitoring or GitHub requests were made.
+  The existing Publishers Weekly access limitation was not changed.
+- See [EDITORIAL_FILTERING.md](EDITORIAL_FILTERING.md) for the heuristic and
+  language-detector limitations. Live preview and send-test validation is still
+  required before enabling scheduled delivery.
+
 ## Bounded source-selection update verification
 
 - Python 3.13.5: all 116 offline tests passed, including 20 new collector tests.

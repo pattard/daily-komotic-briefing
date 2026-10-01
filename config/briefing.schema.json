@@ -7,7 +7,8 @@
         "type": "object",
         "properties": {
           "headline": {
-            "type": "string"
+            "type": "string",
+            "description": "Factual reader-facing headline in natural English, translated if necessary."
           },
           "category": {
             "type": "string",
@@ -28,13 +29,16 @@
             "maxItems": 3
           },
           "summary": {
-            "type": "string"
+            "type": "string",
+            "description": "Factual summary in English regardless of the source language."
           },
           "implication": {
-            "type": "string"
+            "type": "string",
+            "description": "Interpretation for Komotic in English, separate from the factual summary."
           },
           "action": {
-            "type": "string"
+            "type": "string",
+            "description": "Suggested action in English, or an empty string when unjustified."
           },
           "event_key": {
             "type": "string"
@@ -43,7 +47,8 @@
             "type": "boolean"
           },
           "new_development": {
-            "type": "string"
+            "type": "string",
+            "description": "Material update in English, or an empty string for a new event."
           },
           "evidence": {
             "type": "array",
@@ -54,7 +59,8 @@
                   "type": "string"
                 },
                 "quote": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "Exact verbatim source evidence in its ORIGINAL language. Never translate this internal validation quote."
                 }
               },
               "required": [

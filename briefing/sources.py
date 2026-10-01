@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from time import monotonic
 from urllib.parse import urljoin, urlsplit
@@ -12,6 +12,7 @@ from defusedxml import ElementTree
 
 from .common import canonical_url, clean, digest, iso, parse_date
 from .http import FetchError, PublicClient
+from .relevance import assess_relevance
 
 
 @dataclass
@@ -29,6 +30,7 @@ class Article:
     access: str = "Feed excerpt only"
     fingerprint: str = ""
     score: int = 0
+    relevance: dict = field(default_factory=dict)
 
     def record(self) -> dict:
         return asdict(self)
@@ -192,20 +194,9 @@ def extract_page(item: Article, body: bytes) -> Article:
     return item
 
 
-STRONG = re.compile(r"acquir|acquisi|merg|shutdown|shut(?:s|ting)? down|clos(?:ure|ing)|cease|bankrupt|insolven|funding|invest(?:ment|s|or)|revenue|royalt|commission|creator.{0,20}(?:pay|earn)|moneti[sz]|pricing|ownership|DRM|download|digital.{0,12}(?:market|store|reader)|platform|distribution|distribut(?:or|ion)|licens|partnership|partner(?:s|ed|ing)?\b|publishing house|new publisher|new imprint|imprint|new press|launch(?:es|ed|ing)?|accessib|translation|locali[sz]|print.on.demand|subscription|toolkit|interface|cierre|adquisi|fusi[o\u00f3]n|plataforma|distribu|editorial|rachat|fusion|fermeture|[e\u00e9]diteur|[e\u00e9]dition|num[e\u00e9]rique", re.I)
-ROUTINE = re.compile(r"\breview\b|\bpreview\b|solicitation|this week.s comics|new comic book day|\btrailer\b|\bcosplay\b|\brecap\b|\brese[n\u00f1]a\b|\bcritique\b", re.I)
-
-
 def score_article(item: Article, aliases: list[str]) -> int:
-    title, text = item.title.lower(), (item.title + " " + item.excerpt[:2000]).lower()
-    signal = len(STRONG.findall(title)) * 4 + min(len(STRONG.findall(text)), 8)
-    watched = any(re.search(r"(?<!\w)" + re.escape(name.lower()) + r"(?!\w)", text) for name in aliases)
-    score = signal + (3 if watched else 0) + (2 if item.source_kind == "official" else 0)
-    if ROUTINE.search(title):
-        score -= 10
-    if item.region in ("US", "UK", "CA", "EU"):
-        score += 1
-    return score
+    item.relevance = assess_relevance(item, aliases)
+    return item.relevance["relevance_score"]
 
 
 def collect(client: PublicClient, sources: list[dict], aliases: list[str], seen: dict,
@@ -223,8 +214,20 @@ def collect(client: PublicClient, sources: list[dict], aliases: list[str], seen:
     report = {"sources": [], "warnings": [], "fetched_entries": 0, "undated_omitted": 0,
               "future_omitted": 0, "preselected": 0, "candidate_overflow": 0, "article_fetch_failures": 0,
               "old_omitted": 0, "old_after_fetch": 0, "score_omitted": 0,
-              "already_seen_omitted": 0, "candidate_diagnostics": []}
+              "already_seen_omitted": 0, "candidate_diagnostics": [],
+              "relevance_version": 1, "relevance_after_fetch_omitted": 0,
+              "relevance_exclusion_counts": {}, "relevance_exclusions": []}
     items: dict[str, Article] = {}
+
+    def record_exclusion(item: Article, stage: str) -> None:
+        reason = item.relevance.get("exclusion_reason") or "below_minimum_score"
+        counts = report["relevance_exclusion_counts"]
+        counts[reason] = counts.get(reason, 0) + 1
+        # Bounded sample for debugging, with no excerpts or evidence quotes.
+        if len(report["relevance_exclusions"]) < 25:
+            report["relevance_exclusions"].append({"id": item.id, "title": item.title,
+                "source": item.source, "stage": stage, **item.relevance,
+                "exclusion_reason": reason})
 
     def one(source):
         try:
@@ -269,6 +272,7 @@ def collect(client: PublicClient, sources: list[dict], aliases: list[str], seen:
             candidates.append(item)
         else:
             report["score_omitted"] += 1
+            record_exclusion(item, "feed")
     candidates.sort(key=lambda a: (-a.score, a.id))
     report["preselected"] = len(candidates)
     # Reserve up to four EU slots when relevant candidates exist; never pad with
@@ -312,9 +316,12 @@ def collect(client: PublicClient, sources: list[dict], aliases: list[str], seen:
                 feed_fingerprints[item.id] = item.fingerprint
             for item, failed in pool.map(expand, batch):
                 report["article_fetch_failures"] += int(failed)
+                feed_score = item.score
+                item.score = score_article(item, aliases)
                 candidate = {"id": item.id, "title": item.title, "source": item.source,
                              "region": item.region, "score": item.score, "published": item.published,
-                             "access": item.access, "outcome": "eligible"}
+                             "access": item.access, "outcome": "eligible",
+                             "feed_score": feed_score, **item.relevance}
                 report["candidate_diagnostics"].append(candidate)
                 published = parse_date(item.published)
                 if not published:
@@ -334,6 +341,11 @@ def collect(client: PublicClient, sources: list[dict], aliases: list[str], seen:
                 if seen.get(item.id, {}).get("fingerprint") == item.fingerprint:
                     candidate["outcome"] = "already_seen"
                     report["already_seen_omitted"] += 1
+                    continue
+                if item.score < cfg["candidate_min_score"]:
+                    candidate["outcome"] = "irrelevant_after_fetch"
+                    report["relevance_after_fetch_omitted"] += 1
+                    record_exclusion(item, "article")
                     continue
                 expanded.append(item)
     report["article_fetch_elapsed_seconds"] = round(monotonic() - started, 3)

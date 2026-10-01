@@ -2,7 +2,7 @@
 
 A private, source-grounded comics-industry newsletter for Komotic. Python application, GitHub Actions scheduler, OpenAI summarisation and Resend delivery. No separate database or paid news-search service.
 
-**Complete application package:** this archive contains the original application, the diagnostics fix and the bounded source-selection fix, already applied. It is not a changed-files patch. For safe file merging, start with [docs/RECOVERY.md](docs/RECOVERY.md). See [docs/SOURCE_SELECTION_FIX.md](docs/SOURCE_SELECTION_FIX.md) for the latest changes. No separate patch is required.
+This repository contains the original application, diagnostics fix, bounded source-selection fix, and conservative relevance/English-output update. Changes are applied directly to the application. See [docs/EDITORIAL_FILTERING.md](docs/EDITORIAL_FILTERING.md) for the current rules, diagnostics and trade-offs; [docs/RECOVERY.md](docs/RECOVERY.md) covers restoration from earlier archives.
 
 **The schedule is disabled until the repository variable `NEWSLETTER_ENABLED` is set to `true`. Installing these files alone does not send a scheduled email.**
 
@@ -82,6 +82,8 @@ Check relevance, source links, factual summaries, implications and warning messa
 
 A green workflow only means the software completed: `report.json` can still show `collection_failure` or `links_only`. Do not mistake a graceful fallback for successful editorial processing.
 
+Relevance filtering now requires a concrete strategic development before model submission, scores specific signals once each, and reassesses retrieved article text. Routine reviews, lists, interviews, crowdfunding and title promotions receive penalties; watchlist names alone cannot qualify. The report includes signal labels and a bounded sample of relevance exclusions. Reader-facing copy must be English, with offline language validation; evidence stays verbatim in the original language. Fallback links use English labels without attempting another paid translation. See [docs/EDITORIAL_FILTERING.md](docs/EDITORIAL_FILTERING.md).
+
 The initial registry contains 10 enabled source endpoints and two disabled candidates. The supplied source-check report dated 30-09-2026 records nine successful endpoints and an unavailable Publishers Weekly endpoint. That single run is not a guarantee of continuing availability or editorial quality. Initial browser research recognised several RSS endpoints without being able to parse them. Run **`check-sources`** for an independent, zero-model-cost source check. Failed or blocked sources appear in the report; the collector does not bypass their restrictions.
 
 ## 4. Send a real test edition
@@ -160,6 +162,8 @@ python -m briefing check-sources
 .github/workflows/briefing.yml   Scheduler, manual modes and artifact retention
 .github/workflows/tests.yml      Offline tests; no secrets
 briefing/                       Collector, editor, renderer, state and delivery
+briefing/relevance.py           Material-development signals and routine-content penalties
+briefing/language.py            Deterministic offline English-output check
 config/settings.json            Limits, model and defaults
 config/sources.json             Enabled feeds/pages and disabled candidates
 config/watchlist.json           Names/aliases; no assumed current company statuses
@@ -172,6 +176,7 @@ docs/OPERATIONS.md              Monitoring, cost, recovery and maintenance
 docs/SOURCES.md                 Source verification notes and known gaps
 docs/VALIDATION.md              What was and was not tested
 docs/DIAGNOSTICS_FIX.md         Report fields, rejection codes and fix history
+docs/EDITORIAL_FILTERING.md     Relevance and English-output rules, diagnostics and limits
 docs/RECOVERY.md                Safe restoration from the complete archive
 ```
 
