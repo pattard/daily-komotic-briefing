@@ -2,7 +2,7 @@
 
 A private, source-grounded comics-industry newsletter for Komotic. Python application, GitHub Actions scheduler, OpenAI summarisation and Resend delivery. No separate database or paid news-search service.
 
-**Full recovery package:** this archive contains the complete original application plus the diagnostics fix, already applied. It is not a changed-files patch. For restoring an accidentally replaced directory, start with [docs/RECOVERY.md](docs/RECOVERY.md). No additional patch is required.
+**Complete application package:** this archive contains the original application, the diagnostics fix and the bounded source-selection fix, already applied. It is not a changed-files patch. For safe file merging, start with [docs/RECOVERY.md](docs/RECOVERY.md). See [docs/SOURCE_SELECTION_FIX.md](docs/SOURCE_SELECTION_FIX.md) for the latest changes. No separate patch is required.
 
 **The schedule is disabled until the repository variable `NEWSLETTER_ENABLED` is set to `true`. Installing these files alone does not send a scheduled email.**
 
@@ -78,11 +78,11 @@ Download the run's artifact and open:
 | `newsletter.txt` | Plain-text email alternative |
 | `report.json` | Source availability, coverage warnings and estimated model spending |
 
-Check relevance, source links, factual summaries, implications and warning messages. With the diagnostics fix, reports explicitly record the run mode and analysis outcome. A `check-sources` run produces only `report.json`, with `edition_status: not_generated` and `analysis.status: not_requested`. It does not generate a newsletter. See [docs/DIAGNOSTICS_FIX.md](docs/DIAGNOSTICS_FIX.md) for validation codes.
+Check relevance, source links, factual summaries, implications and warning messages. With the diagnostics fix, reports explicitly record the run mode and analysis outcome. A `check-sources` run produces only `report.json`, with `edition_status: not_generated` and `analysis.status: not_requested`. It does not generate a newsletter. See [docs/DIAGNOSTICS_FIX.md](docs/DIAGNOSTICS_FIX.md) for validation codes. The collector now replaces date/seen rejections from the remaining queue, subject to a separate cap of 60 article-page attempts and a 240-second between-batch expansion budget. The model shortlist is still capped at 20. See [docs/SOURCE_SELECTION_FIX.md](docs/SOURCE_SELECTION_FIX.md) for collection diagnostics and limitations.
 
 A green workflow only means the software completed: `report.json` can still show `collection_failure` or `links_only`. Do not mistake a graceful fallback for successful editorial processing.
 
-The initial registry contains 10 enabled source endpoints and two disabled candidates. They have **not been tested from our GitHub runner yet**. Some RSS endpoints were recognisable in browser research but could not be parsed by that browser tool. Run **`check-sources`** for an independent, zero-model-cost source check. Failed or blocked sources appear in the report; the collector does not bypass their restrictions.
+The initial registry contains 10 enabled source endpoints and two disabled candidates. The supplied source-check report dated 30-09-2026 records nine successful endpoints and an unavailable Publishers Weekly endpoint. That single run is not a guarantee of continuing availability or editorial quality. Initial browser research recognised several RSS endpoints without being able to parse them. Run **`check-sources`** for an independent, zero-model-cost source check. Failed or blocked sources appear in the report; the collector does not bypass their restrictions.
 
 ## 4. Send a real test edition
 

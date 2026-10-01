@@ -21,7 +21,7 @@ Exact URLs and HTML URL patterns live in `config/sources.json`. HTML indices are
 
 Browser research could read GlobalComix Headquarters and WEBTOON announcement/notice indices. Several feed requests returned a recognised RSS/XML content type that the research browser could not display; that is not the same as a parsed, validated feed. The Publishers Weekly comics feed was returned as a text feed in search. The GlobalComix partnership route is included as an initial endpoint and still needs the same runner-level validation as every other source.
 
-Direct network requests from the build environment failed DNS resolution. Consequently **the real collector has not fetched these endpoints from this build environment or the user's GitHub runner**. The included parser fixtures are synthetic and test software behaviour, not current website markup. Use `check-sources` and inspect its report before enabling the schedule. Source endpoints, robots policies and publication formats can change.
+Initial build-environment requests failed DNS resolution. Subsequently, the user's source-check report dated 30-09-2026 recorded nine successful endpoints out of ten, with Publishers Weekly reporting `robots_disallowed_or_unavailable`. This was one source-only run, not a live editorial acceptance test. The bounded collection update was tested offline with synthetic fixtures, not newly fetched website markup. Use a fresh `check-sources` run and a preview before enabling the schedule. Source endpoints, access policies and publication formats can change.
 
 ## Disabled candidates and gaps
 

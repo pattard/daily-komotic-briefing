@@ -17,6 +17,8 @@
   "initial_lookback_days": 4,
   "candidate_min_score": 4,
   "max_candidates": 20,
+  "max_article_fetches": 60,
+  "max_article_fetch_seconds": 240,
   "min_healthy_sources": 3,
   "min_healthy_fraction": 0.5,
   "scheduled_latest_hour": 12

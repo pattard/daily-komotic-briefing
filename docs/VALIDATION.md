@@ -2,7 +2,21 @@
 
 Build date: 30-09-2026.
 
-## Complete-repository recovery verification
+## Bounded source-selection update verification
+
+- Python 3.13.5: all 116 offline tests passed, including 20 new collector tests.
+- The same controlled queue fixture produced 4 eligible candidates from 20
+  attempts with the original collector, and 20 from 36 attempts after the fix.
+  Both rejected the same 16 old pages. This was synthetic, not a replay of live news.
+- The fictional demo completed. Newsletter templates and rendering code were unchanged.
+- The complete archive was checked to retain every path from the previous full package.
+- No live news, model, email, monitoring or authenticated GitHub requests were made.
+- No source, secret, state-schema, email-address, schedule, model, evidence-validation
+  or scoring-rule changes. Only collection limits/progression and documentation changed.
+- See SOURCE_SELECTION_FIX.md for the distinction between collection eligibility
+  and genuine editorial relevance.
+
+## Complete-repository recovery verification (previous package)
 
 - Restored every path from the original archive and overlaid the diagnostics-fix archive.
 - No application, configuration or workflow changes beyond that existing fix.
@@ -32,15 +46,17 @@ Build date: 30-09-2026.
 
 Tests use controlled synthetic inputs and simulated API responses. They do not demonstrate semantic editorial accuracy on live news or prove provider delivery behaviour. Current test output, rather than this historical count, is authoritative after changes.
 
-## Not executed here
+## Live validation still required
 
-- Live source collection from GitHub-hosted runners.
+- A new source-check run of this collector update from GitHub-hosted runners.
+  The user supplied a prior report showing 9/10 endpoints successful; the updated
+  collector has not been run there by this build process.
 - Live OpenAI, Resend, Healthchecks or authenticated GitHub state API requests.
 - A real end-to-end email delivery.
 - A production schedule, GitHub repository push or change to the user's repository settings.
 - Real-feed editorial acceptance testing across several consecutive days.
 
-The build environment could not resolve external hostnames. That limitation was reported rather than replaced with fabricated live results. The packaged GitHub workflows are the next validation environment.
+The initial build reported a DNS-resolution limitation. This update deliberately uses offline fixtures only and makes no new claim about network availability. The packaged GitHub workflows are the next live validation environment.
 
 ## Before enabling
 

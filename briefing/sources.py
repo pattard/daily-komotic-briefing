@@ -4,6 +4,7 @@ import concurrent.futures
 import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
+from time import monotonic
 from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
@@ -209,6 +210,15 @@ def score_article(item: Article, aliases: list[str]) -> int:
 
 def collect(client: PublicClient, sources: list[dict], aliases: list[str], seen: dict,
             now: datetime, cfg: dict, initialised: bool) -> tuple[list[Article], dict]:
+    candidate_limit = cfg["max_candidates"]
+    if type(candidate_limit) is not int or candidate_limit < 1:
+        raise ValueError("max_candidates must be a positive integer")
+    fetch_limit = cfg.get("max_article_fetches", candidate_limit * 3)
+    time_budget = cfg.get("max_article_fetch_seconds", 240)
+    if type(fetch_limit) is not int or fetch_limit < candidate_limit:
+        raise ValueError("max_article_fetches must be an integer at least max_candidates")
+    if type(time_budget) is not int or time_budget < 1:
+        raise ValueError("max_article_fetch_seconds must be a positive integer")
     active = [s for s in sources if s.get("enabled")]
     report = {"sources": [], "warnings": [], "fetched_entries": 0, "undated_omitted": 0,
               "future_omitted": 0, "preselected": 0, "candidate_overflow": 0, "article_fetch_failures": 0,
@@ -265,10 +275,16 @@ def collect(client: PublicClient, sources: list[dict], aliases: list[str], seen:
     # irrelevant items solely to satisfy a geographical quota.
     eu = [a for a in candidates if a.region == "EU"][:4]
     rest = [a for a in candidates if a.id not in {x.id for x in eu}]
-    candidates = (eu + rest)[:cfg["max_candidates"]]
-    report["candidate_overflow"] = max(0, report["preselected"] - len(candidates))
-    report["article_fetch_attempts"] = len(candidates)
-    feed_fingerprints = {a.id: a.fingerprint for a in candidates}
+    # Keep the full ranked queue. A candidate with an unknown publication date
+    # can turn out to be old only after its article page has been fetched. Such
+    # rejections must not permanently consume slots in the model shortlist.
+    candidates = eu + rest
+    report["selection_version"] = 2
+    report["candidate_limit"] = candidate_limit
+    report["article_fetch_limit"] = fetch_limit
+    report["article_fetch_time_budget_seconds"] = time_budget
+    report["article_fetch_attempts"] = 0
+    feed_fingerprints: dict[str, str] = {}
 
     def expand(item):
         try:
@@ -279,34 +295,59 @@ def collect(client: PublicClient, sources: list[dict], aliases: list[str], seen:
             return item, True
 
     expanded: list[Article] = []
+    cursor = 0
+    started = monotonic()
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        for item, failed in pool.map(expand, candidates):
-            report["article_fetch_failures"] += int(failed)
-            candidate = {"id": item.id, "title": item.title, "source": item.source,
-                         "region": item.region, "score": item.score, "published": item.published,
-                         "access": item.access, "outcome": "eligible"}
-            report["candidate_diagnostics"].append(candidate)
-            published = parse_date(item.published)
-            if not published:
-                candidate["outcome"] = "undated"
-                report["undated_omitted"] += 1
-                continue
-            if published < cutoff:
-                report["old_omitted"] += 1
-                report["old_after_fetch"] += 1
-                candidate["outcome"] = "old_after_fetch"
-                continue
-            if published > now + timedelta(minutes=5):
-                candidate["outcome"] = "future_after_fetch"
-                report["future_omitted"] += 1
-                continue
-            item.refresh_fingerprint()
-            if seen.get(item.id, {}).get("fingerprint") == item.fingerprint:
-                candidate["outcome"] = "already_seen"
-                report["already_seen_omitted"] += 1
-                continue
-            expanded.append(item)
+        while cursor < len(candidates) and len(expanded) < candidate_limit:
+            attempts_left = fetch_limit - report["article_fetch_attempts"]
+            # This is a between-batch deadline. In-flight requests still obey
+            # the HTTP client's existing timeout, redirect and pacing limits.
+            if attempts_left <= 0 or monotonic() - started >= time_budget:
+                break
+            batch_size = min(4, candidate_limit - len(expanded), attempts_left)
+            batch = candidates[cursor:cursor + batch_size]
+            cursor += len(batch)
+            report["article_fetch_attempts"] += len(batch)
+            for item in batch:
+                feed_fingerprints[item.id] = item.fingerprint
+            for item, failed in pool.map(expand, batch):
+                report["article_fetch_failures"] += int(failed)
+                candidate = {"id": item.id, "title": item.title, "source": item.source,
+                             "region": item.region, "score": item.score, "published": item.published,
+                             "access": item.access, "outcome": "eligible"}
+                report["candidate_diagnostics"].append(candidate)
+                published = parse_date(item.published)
+                if not published:
+                    candidate["outcome"] = "undated"
+                    report["undated_omitted"] += 1
+                    continue
+                if published < cutoff:
+                    candidate["outcome"] = "old_after_fetch"
+                    report["old_omitted"] += 1
+                    report["old_after_fetch"] += 1
+                    continue
+                if published > now + timedelta(minutes=5):
+                    candidate["outcome"] = "future_after_fetch"
+                    report["future_omitted"] += 1
+                    continue
+                item.refresh_fingerprint()
+                if seen.get(item.id, {}).get("fingerprint") == item.fingerprint:
+                    candidate["outcome"] = "already_seen"
+                    report["already_seen_omitted"] += 1
+                    continue
+                expanded.append(item)
+    report["article_fetch_elapsed_seconds"] = round(monotonic() - started, 3)
     report["eligible_candidates"] = len(expanded)
+    report["backfill_fetches"] = max(0, report["article_fetch_attempts"] - min(report["preselected"], candidate_limit))
+    report["candidate_overflow"] = len(candidates) - cursor
+    if cursor == len(candidates):
+        report["selection_stop_reason"] = "queue_exhausted"
+    elif len(expanded) >= candidate_limit:
+        report["selection_stop_reason"] = "candidate_limit"
+    elif report["article_fetch_attempts"] >= fetch_limit:
+        report["selection_stop_reason"] = "article_fetch_limit"
+    else:
+        report["selection_stop_reason"] = "article_fetch_time_limit"
     report["feed_fingerprints"] = feed_fingerprints
     report["healthy_sources"] = sum(s["status"] == "ok" for s in report["sources"])
     report["total_sources"] = len(active)
@@ -316,7 +357,7 @@ def collect(client: PublicClient, sources: list[dict], aliases: list[str], seen:
         if source["status"] != "ok":
             report["warnings"].append(f"{source['name']}: {source['status']}")
     if report["candidate_overflow"]:
-        report["warnings"].append(f"Capacity limit: {report['candidate_overflow']} additional preselected items were not assessed.")
+        report["warnings"].append(f"Capacity limit ({report['selection_stop_reason']}): {report['candidate_overflow']} additional preselected items were not checked.")
     if report["undated_omitted"]:
         report["warnings"].append(f"{report['undated_omitted']} items omitted because a publication date could not be established.")
     if report["article_fetch_failures"]:

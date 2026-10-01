@@ -2,6 +2,10 @@
 
 Date: 30-09-2026
 
+**Follow-up update:** the complete package also includes the bounded collector
+replacement fix described in `SOURCE_SELECTION_FIX.md`. The original diagnostics
+changes and their historical validation record are documented below.
+
 ## What this update fixes
 
 The original fallback discarded per-item rejection warnings and set the displayed
