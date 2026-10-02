@@ -12,7 +12,8 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from briefing.app import deliver, run, target_time
+from briefing.app import deliver, run
+from briefing.scheduling import target_time
 from briefing.common import ROOT, canonical_url, iso, parse_date, settings
 from briefing.editor import edit, make_payload, validate_selection
 from briefing.http import APIError, APIs, FetchError, Page, PublicClient, public_url
@@ -410,12 +411,12 @@ class WorkflowTests(unittest.TestCase):
     def test_weekend_no_send(self):
         self.assertEqual(self.execute('scheduled',lambda:parse_date('2026-10-03T05:13:00Z')),'weekend')
         self.assertFalse(self.api.calls)
-    def test_late_first_run_sends_labelled_immediate_email(self):
-        self.execute('scheduled',lambda:parse_date('2026-09-30T06:15:00Z'))
-        self.assertIn('[DELAYED]',self.api.calls[-1][3]['subject'])
-        self.assertNotIn('scheduled_at',self.api.calls[-1][3])
-    def test_noon_cutoff(self):
-        with self.assertRaises(RuntimeError):
+    def test_late_first_run_is_skipped_without_email_or_model_request(self):
+        with self.assertRaisesRegex(RuntimeError, 'submission deadline'):
+            self.execute('scheduled',lambda:parse_date('2026-09-30T06:15:00Z'))
+        self.assertFalse(self.api.calls)
+    def test_afternoon_cutoff(self):
+        with self.assertRaisesRegex(RuntimeError, 'submission deadline'):
             self.execute('scheduled',lambda:parse_date('2026-09-30T10:01:00Z'))
         self.assertFalse(self.api.calls)
     def test_ambiguous_send_reuses_identical_payload_and_key(self):
@@ -432,7 +433,7 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaises(APIError): self.execute('scheduled')
         self.api.resend_error=None
         with self.assertRaisesRegex(RuntimeError,'in the past'):
-            self.execute('scheduled',lambda:NOW+timedelta(hours=1))
+            deliver(self.store,'2026-09-30',self.api,'key',lambda:NOW+timedelta(hours=1))
         self.assertEqual(sum(c[0]=='Resend' for c in self.api.calls),1)
     def test_23_hour_ambiguity_guard(self):
         self.execute('send-test')

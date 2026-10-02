@@ -7,20 +7,14 @@ import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from .common import ROOT, iso, load_json, parse_date, settings, utcnow
 from .editor import analysis_record, edit
 from .http import APIError, APIs, PublicClient, ping
 from .render import render, write_outputs
+from .scheduling import SUBMISSION_MARGIN, monitoring_window, production_target, require_submission_window
 from .sources import collect
 from .state import Budget, prune, store_from_environment
-
-
-def target_time(now: datetime, cfg: dict) -> datetime:
-    local = now.astimezone(ZoneInfo(cfg["timezone"]))
-    hour, minute = map(int, cfg["send_time"].split(":"))
-    return local.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
 
 def production_mode(mode: str) -> bool:
@@ -45,7 +39,8 @@ def apply_coverage(state: dict, edition: dict) -> None:
         state["seen"][key] = value
     for item in edition["briefing"]["items"]:
         state["history"].append({"event_key": item["event_key"], "headline": item["headline"],
-                                  "summary": item["summary"], "date": edition["created"][:10]})
+                                  "summary": item["summary"],
+                                  "date": edition.get("edition_date", edition["created"][:10])})
     state["history"] = state["history"][-60:]
 
 
@@ -58,8 +53,12 @@ def deliver(store, key: str, api, resend_key: str, clock=utcnow) -> str:
     if first and now - first >= timedelta(hours=23):
         raise RuntimeError("An unresolved send is older than 23 hours. Check Resend before changing state; automatic retry is disabled.")
     scheduled = parse_date(edition["payload"].get("scheduled_at"))
+    if edition["production"] and scheduled is None:
+        raise RuntimeError("A production payload requires scheduled_at; immediate delivery is disabled. Check Resend before reconciling legacy state.")
     if scheduled and now >= scheduled:
         raise RuntimeError("A saved scheduled-send payload is now in the past. Check Resend before reconciliation; it will not be silently changed or duplicated.")
+    if edition["production"]:
+        require_submission_window(now, scheduled)
     if edition.get("send_attempts", 0) >= 3:
         raise RuntimeError("Three send attempts already recorded. Check Resend before any further retry.")
     if not resend_key:
@@ -67,6 +66,9 @@ def deliver(store, key: str, api, resend_key: str, clock=utcnow) -> str:
     edition.setdefault("first_attempt", iso(now))
     edition["send_attempts"] = edition.get("send_attempts", 0) + 1
     store.save()  # Durable intent before the external side effect.
+    if edition["production"]:
+        # A state API call can finish after the cutoff: recheck at the send boundary.
+        require_submission_window(clock(), scheduled)
     response = api.call("Resend", "POST", "https://api.resend.com/emails", resend_key,
                         edition["payload"], {"Idempotency-Key": edition["idempotency_key"]})
     if not isinstance(response.get("id"), str) or not response["id"]:
@@ -77,6 +79,13 @@ def deliver(store, key: str, api, resend_key: str, clock=utcnow) -> str:
     # If this save fails, recovery reuses the SAME saved payload and idempotency key.
     store.save()
     return response["id"]
+
+
+def signal_production_health(edition: dict, target: datetime, cfg: dict, now: datetime,
+                             url: str, pinger) -> None:
+    healthy = edition.get("health_ok", True)
+    if not healthy or monitoring_window(now, target, cfg):
+        pinger(url, healthy)
 
 
 def run(mode: str, cfg: dict, store, api, client, keys: dict, output: Path,
@@ -100,44 +109,51 @@ def run(mode: str, cfg: dict, store, api, client, keys: dict, output: Path,
         store.save()
         print("Monitoring armed after a successful test. No news email sent or production history advanced.")
         return "monitor_armed"
+    target = production_target(now, cfg) if production else None
     if production:
         if not cfg["enabled"]:
             print("Automatic delivery disabled. Set NEWSLETTER_ENABLED=true only after a successful preview/test.")
             return "disabled"
-        local = now.astimezone(ZoneInfo(cfg["timezone"]))
-        if local.weekday() >= 5:
-            print("No production edition on weekends.")
+        if target.weekday() >= 5:
+            print("No production edition targeted for weekends.")
             return "weekend"
-        if local.hour >= cfg["scheduled_latest_hour"]:
-            raise RuntimeError("Production preparation started after the noon safety cutoff. No stale edition was sent.")
-        if local.hour < 6:
-            raise RuntimeError("Production runs must start between 06:00 and noon in the configured timezone.")
-    key = now.astimezone(ZoneInfo(cfg["timezone"])).strftime("%Y-%m-%d") if production else f"{mode}-{run_id}"
+        print(f"Production target: {target.isoformat(timespec='seconds')}; "
+              f"submission deadline: {(target - SUBMISSION_MARGIN).isoformat(timespec='seconds')}; "
+              f"started: {iso(now)}.")
+    key = target.strftime("%Y-%m-%d") if production else f"{mode}-{run_id}"
     prune(store, now)
     previous = store.data["editions"].get(key)
     if previous and previous.get("status") == "queued":
         if previous.get("payload"):
             write_outputs(output, previous["payload"], previous["briefing"], previous["report"], Budget(store, cfg, now).used())
         if production:
-            pinger(keys.get("healthchecks", ""), previous.get("health_ok", True))
+            signal_production_health(previous, target, cfg, now, keys.get("healthchecks", ""), pinger)
         print("Edition was already accepted by Resend; no duplicate email requested.")
         return "already_queued"
+    if production:
+        require_submission_window(now, target)
+        if previous and parse_date(previous["payload"].get("scheduled_at")) != target:
+            raise RuntimeError("The saved production scheduled_at does not match this edition's target. Check Resend before reconciling legacy state; the payload will not be changed.")
     if previous is None:
         sources = load_json(ROOT / "config/sources.json")
         watchlist = load_json(ROOT / "config/watchlist.json")
         aliases = [alias for row in watchlist["entities"] for alias in row["aliases"]]
         articles, report = collector(client, sources, aliases, store.data["seen"], now, cfg, store.data["initialised"])
+        if production:
+            require_submission_window(clock(), target)
         report["run_mode"] = mode
         report["diagnostics_version"] = 2
         report["collection_status"] = collection_status(report)
         briefing = edit(articles, report, cfg, store, now, key, api, keys.get("openai", ""))
         prepared_at = clock()
-        delayed = production and prepared_at >= target_time(prepared_at, cfg)
-        if production and prepared_at.astimezone(ZoneInfo(cfg["timezone"])).hour >= cfg["scheduled_latest_hour"]:
-            raise RuntimeError("Preparation passed the noon cutoff. No production email was queued.")
-        payload = render(briefing, report, cfg, prepared_at, test=(mode == "send-test"), delayed=delayed)
-        target = target_time(prepared_at, cfg)
-        if production and target > prepared_at + timedelta(seconds=45):
+        if production:
+            require_submission_window(prepared_at, target)
+            report.update({"edition_date": key, "scheduled_at": iso(target),
+                           "submission_deadline": iso(target - SUBMISSION_MARGIN),
+                           "prepared_at": iso(prepared_at)})
+        payload = render(briefing, report, cfg, prepared_at, test=(mode == "send-test"),
+                         edition_at=target)
+        if production:
             payload["scheduled_at"] = iso(target)
         ids = set(briefing["assessed_ids"])
         reviewed = {a.id: {"fingerprint": a.fingerprint,
@@ -149,6 +165,8 @@ def run(mode: str, cfg: dict, store, api, client, keys: dict, output: Path,
                    "payload": payload, "briefing": clean_briefing(briefing), "report": report,
                    "reviewed": reviewed, "idempotency_key": f"daily-komotic-briefing/{key}",
                    "health_ok": briefing["status"] != "collection_failure"}
+        if production:
+            edition["edition_date"] = key
         store.data["editions"][key] = edition
         store.save()
     edition = store.data["editions"][key]
@@ -158,7 +176,7 @@ def run(mode: str, cfg: dict, store, api, client, keys: dict, output: Path,
         return "preview"
     deliver(store, key, api, keys.get("resend", ""), clock)
     if production:
-        pinger(keys.get("healthchecks", ""), edition["health_ok"])
+        signal_production_health(edition, target, cfg, clock(), keys.get("healthchecks", ""), pinger)
     print("Resend accepted the email. Acceptance is not confirmation of inbox delivery.")
     return "queued"
 

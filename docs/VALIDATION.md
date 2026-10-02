@@ -2,6 +2,32 @@
 
 Build date: 30-09-2026.
 
+## Advance preparation and strict submission deadline (02-10-2026)
+
+- The public scheduled-run metadata showed starts at 13:34 and 13:04 Madrid
+  time on 01-10-2026 and 02-10-2026. Reproduced those exact start timestamps
+  with simulated providers; both now stop before collection/model/email calls
+  when the day's edition has not already been queued.
+- Added evening preparation, overnight recovery and a morning missing-edition
+  audit. Every new production payload has an explicit 08:00 send target, with
+  a strict five-minute submission margin. No immediate delayed-send path remains.
+- Full offline suite: **228 tests passed** under Python 3.12.13, including
+  22 new scheduling regressions. Coverage includes delivery-date labels/history,
+  evening-to-morning deduplication, immutable retries across midnight, Sunday
+  to Monday, summer/winter DST offsets, deadline crossings during collection,
+  model work and durable state writes, and legacy pending/queued records.
+- Updated the former delayed-send test to expect no production request. The
+  provider's stale scheduled-payload protection remains independently tested.
+- Both workflow YAML files parse successfully. The fictional offline demo
+  completes, and `git diff --check` passes.
+- Existing state, secrets and the morning Healthchecks cron are retained.
+  Evening/overnight success does not ping tomorrow's monitoring interval;
+  morning confirmation still signals the saved queue record from 07:13.
+- No live news/model/email/monitoring call, repository settings change or push
+  was made during this implementation. The new production schedule takes effect
+  only after the updated workflow reaches the default branch. See
+  [SCHEDULING.md](SCHEDULING.md) for rollout and live verification.
+
 ## Preview evidence-selection correction (01-10-2026)
 
 - The supplied preview reported `quote_not_found`, with one proposal rejected

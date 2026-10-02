@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Preview first. Test sends now. Send-edition requires NEWSLETTER_ENABLED=true."
+        description: "Preview first. Test sends now. Send-edition queues 08:00; submission closes at 07:55."
         required: true
         default: preview
         type: choice
@@ -15,7 +15,17 @@ on:
           - send-edition
           - arm-monitor
   schedule:
+    # Prepare tomorrow's weekday edition, with an evening recovery opportunity.
+    - cron: '13 20,22 * * 0-4'
+      timezone: Europe/Madrid
+    # Overnight recovery if GitHub delayed or dropped the evening triggers.
+    - cron: '13 2,5 * * 1-5'
+      timezone: Europe/Madrid
+    # Confirm the queued edition in the existing Healthchecks morning interval.
     - cron: '13,43 7 * * 1-5'
+      timezone: Europe/Madrid
+    # Audit a missing edition after the deadline; never send a late catch-up.
+    - cron: '13 8 * * 1-5'
       timezone: Europe/Madrid
 
 permissions:

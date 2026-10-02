@@ -19,13 +19,11 @@ def short_date(value: str) -> str:
 
 
 def render(briefing: dict, report: dict, cfg: dict, now: datetime, test: bool = False,
-           delayed: bool = False, demo: bool = False) -> dict:
-    day = now.astimezone(ZoneInfo(cfg["timezone"])).strftime("%d-%m-%Y")
+           demo: bool = False, edition_at: datetime | None = None) -> dict:
+    day = (edition_at or now).astimezone(ZoneInfo(cfg["timezone"])).strftime("%d-%m-%Y")
     subject = f"Daily Komotic Briefing | {day}"
     if test:
         subject = "[TEST] " + subject
-    if delayed:
-        subject = "[DELAYED] " + subject
     if briefing["status"] == "collection_failure":
         subject = "[COLLECTION FAILED] " + subject
     elif briefing["status"] == "links_only":
@@ -39,10 +37,6 @@ def render(briefing: dict, report: dict, cfg: dict, now: datetime, test: bool = 
     if test:
         notice = "Test edition. This does not enable the weekday schedule or advance production coverage history."
         blocks.append(f'<p style="padding:12px;background:#eef2f6">{esc(notice)}</p>')
-        lines.extend([notice, ""])
-    if delayed:
-        notice = "The preparation job started late. This edition is being sent after the intended 08:00 delivery time."
-        blocks.append(f'<p style="padding:12px;background:#fff0c2">{esc(notice)}</p>')
         lines.extend([notice, ""])
     if briefing.get("note"):
         blocks.append(f'<p style="font-size:17px;line-height:1.55">{esc(briefing["note"])}</p>')
@@ -96,7 +90,10 @@ def render(briefing: dict, report: dict, cfg: dict, now: datetime, test: bool = 
     cutoff_text = ""
     if cutoff:
         cutoff_text = "Collection cutoff: " + cutoff.astimezone(ZoneInfo(cfg["timezone"])).strftime("%d-%m-%Y %H:%M") + " " + cfg["timezone"] + "."
-    footer = [coverage, assessed, cutoff_text, "Reported developments and our interpretation are kept separate. Open the sources for the underlying reporting."]
+    advance_note = ("Prepared ahead of the morning send; developments after the collection cutoff are not included."
+                    if edition_at and cutoff and cutoff < edition_at else "")
+    footer = [coverage, assessed, cutoff_text, advance_note,
+              "Reported developments and our interpretation are kept separate. Open the sources for the underlying reporting."]
     blocks.append('<footer style="margin-top:28px;border-top:2px solid #182d42;padding-top:15px;color:#536476;font-size:12px;line-height:1.6">' +
                   "".join(f'<p style="margin:5px 0">{esc(text)}</p>' for text in footer if text) + '</footer>')
     lines.extend(footer)

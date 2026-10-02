@@ -13,12 +13,17 @@ This repository contains the original application, diagnostics fix, bounded sour
 | Recipient | `paul.attard@wearegoat.com` |
 | Sender | `Daily Komotic Briefing <komotic@briefings.wearegoat.com>` |
 | Intended delivery | Monday-Friday, 08:00, `Europe/Madrid` |
-| Preparation and recovery | 07:13 and 07:43, same timezone |
+| Evening preparation / recovery | 20:13 and 22:13, Sunday-Thursday, `Europe/Madrid` |
+| Overnight recovery | 02:13 and 05:13 on delivery weekdays |
+| Morning confirmation / recovery | 07:13 and 07:43 on delivery weekdays |
+| Submission deadline / missing-edition audit | 07:55 deadline; 08:13 audit |
 | Monthly model-spending guard | USD 1.50, including preview/test runs |
 | Newsletter | Up to five substantive items; no padding |
 | Markets | US, UK, Canada and EU, initially English-led |
 
 The automated pipeline checks selected feeds and announcement pages, not the entire internet. Links point to the publisher/trade source, not an invented URL or a search-result page. The model receives source excerpts, never API credentials. Its interpretation is separated from reported facts.
+
+Each edition is prepared the previous evening and queued in the existing Resend account for the following weekday at 08:00. Recovery reuses that edition; it does not refresh already-queued news. Developments after the collection cutoff are considered in a later edition. If nothing is queued before 07:55, that day's edition is skipped and monitoring signals failure. No production email is submitted for immediate catch-up delivery. See [docs/SCHEDULING.md](docs/SCHEDULING.md) for the schedule and rollout checks.
 
 ## 1. Install into our existing repository
 
@@ -106,7 +111,7 @@ Configure the existing Healthchecks check as follows:
 | Grace time | **42 minutes** |
 | Notification integration | Email to our intended monitoring inbox |
 
-This means the check expects success after 07:13 and allows recovery until approximately **07:55**. Do not set the check's cron time to 07:55: a successful earlier ping would then belong to the wrong monitoring interval. Do not include a second expected check at 07:43; that is a recovery opportunity, not a separate required edition.
+Keep this existing morning check. Success heartbeats are withheld during evening and overnight preparation, then sent from 07:13 on the edition's delivery date when the application confirms it was queued. The check allows confirmation/recovery until approximately **07:55**. Do not move its cron to the evening or to 07:55, and do not add a second expected check at 07:43. Collection and workflow failures may signal failure earlier.
 
 After a successful `send-test` and an acceptable preview:
 
@@ -114,9 +119,9 @@ After a successful `send-test` and an acceptable preview:
 2. Run **`arm-monitor`** once within 24 hours of that test. It verifies the recorded test had adequate source coverage, sends an explicit setup heartbeat and primes monitoring for the next expected weekday run. It sends no new newsletter and makes no model request. It does not claim that a scheduled run has already happened.
 3. Confirm Healthchecks is **Up**, not New or Paused, and that its next expected check has the intended weekday/time. If manual-resume protection is enabled in Healthchecks, resume the check before arming it.
 
-The first automatic preparation is then the next eligible weekday at 07:13. Resend is asked to release the completed email at 08:00. The 07:43 run normally recognises an already-queued edition and sends nothing new.
+The next eligible preparation starts at 20:13 Sunday-Thursday for the following morning. Sunday prepares Monday; Friday and Saturday evenings do not prepare weekend editions. Overnight and morning recovery can queue a missing edition before 07:55. All production payloads include an explicit 08:00 Resend schedule. The 08:13 audit confirms an already-queued edition or fails without sending if it is missing.
 
-A `send-edition` manual run is available for production recovery, but requires delivery to be enabled and runs only on weekdays between 06:00 and noon in Madrid. Before 08:00 it schedules today's edition; after 08:00 it sends a clearly labelled delayed edition, provided no ambiguous old scheduled payload exists.
+A `send-edition` manual run follows the same production rules and requires delivery to be enabled. From 20:00 it targets tomorrow's date; overnight and during the day it targets today's date. Weekend targets are skipped, and new submissions stop at 07:55 on the target date. A queued edition can still be confirmed after the deadline without another send. Only `send-test` sends immediately, with its explicit `[TEST]` subject.
 
 ## Behaviour and safeguards
 
@@ -126,7 +131,8 @@ A `send-edition` manual run is available for production recovery, but requires d
 | Some sources unavailable | Newsletter includes specific coverage warnings |
 | More than half the sources unavailable, or fewer than three healthy sources | Explicit collection-failure notice; failure monitoring signal |
 | API unavailable, malformed output or budget guard reached | Source links only, labelled as unassessed |
-| Monday | Rolling lookback includes weekend and Friday-after-cutoff developments |
+| Monday | Sunday evening preparation includes weekend developments available by its collection cutoff |
+| Preparation or recovery misses 07:55 | Skip the edition and signal failure; no late catch-up send |
 | Repeated reports | URL/content fingerprints plus model-assisted event grouping/history |
 | Uncertain email-send result | Reuse saved payload and idempotency key within bounded retry rules |
 | Failure to save durable state | Stop before new external side effects where possible; do not silently reset history |
@@ -136,7 +142,8 @@ The first edition considers up to four days of published items. Subsequent runs 
 
 ## Limits we should retain
 
-- GitHub schedules may be delayed or dropped. Preparing early and scheduling with Resend reduces timing risk but cannot guarantee exact inbox arrival. A new late run sends a `[DELAYED]` edition before noon; later starts require review.
+- GitHub schedules may be delayed or dropped. Evening preparation and multiple recovery opportunities reduce timing risk but cannot guarantee an edition every morning or exact inbox arrival. A missed submission deadline never turns into an immediate production send.
+- News is frozen when the edition is prepared. Overnight developments after its collection cutoff are not added to an already-queued edition.
 - The API-spending guard uses configured prices and durable reservations. It is not an account-wide hard limit, tax calculation or guarantee against provider price changes. It does not include other API applications, Actions overages or email-provider overages. Check the provider dashboard as well.
 - A single small model plus deterministic quote/ID/number checks is not a fact-checking service. Semantic errors, weak implications and imperfect event deduplication remain possible. We need to review early editions and adjust sources/rules.
 - No paid web search, social-media monitoring, authenticated paywall access or JavaScript browser automation is included. Canadian coverage is initially mainly through broader trade reporting. See `docs/SOURCES.md` for gaps.

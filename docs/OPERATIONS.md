@@ -25,7 +25,11 @@ Recent edition payloads are pruned after four days once queued/previewed; their 
 5. Save the returned email ID and queued status, then advance production coverage.
 6. Signal Healthchecks only for production or explicit monitor arming.
 
-The 07:43 recovery run sees the same dated edition. If already queued it does not call the model or email API again. If a send result is ambiguous, it reuses the identical saved payload/key; it does not regenerate the newsletter under the same key.
+Evening preparation at 20:13 targets the next calendar date, with recovery at 22:13. Weekend target dates are skipped, so Sunday evening prepares Monday. Overnight recovery at 02:13/05:13 and morning recovery at 07:13/07:43 see the same delivery-date key. If already queued they do not call the model or email API again. If a send result is ambiguous, they reuse the identical saved payload/key; they do not regenerate the newsletter under the same key. An 08:13 audit fails for a missing edition and never submits it late.
+
+New production submissions are allowed from 20:00 on the preceding date until strictly before 07:55 on the delivery date. The target is fixed when preparation starts, including across midnight and daylight-saving changes. The deadline is checked before collection, after collection, after model work, and at the send boundary after the durable intent write. Production payloads always include `scheduled_at`; legacy unscheduled or mismatched pending payloads require reconciliation instead of automatic immediate delivery. Preview and explicit `[TEST]` sends retain their existing behaviour.
+
+The newsletter date, history date and idempotency key use the delivery date. `created`, collection cutoff and budget reservations retain the real preparation time. Production reports expose `edition_date`, `prepared_at`, `scheduled_at` and `submission_deadline`. Existing state remains valid; do not reset it during this update.
 
 Resend retains idempotency keys for 24 hours. This application stops ambiguous retries after 23 hours and after three send attempts. It also refuses to replay a saved `scheduled_at` timestamp that is already in the past. These restrictions prefer an explicit operational exception over a duplicate or silently changed message.
 
@@ -59,17 +63,18 @@ For a **test** failure after changing sender settings, start a **new manual `sen
 | `parse_failure` or `empty_or_unrecognised_source` | Feed URL/site markup may have changed or returned a challenge page. Verify with `check-sources`. |
 | Repeated quiet days | Inspect coverage, candidate counts and cutoff dates before assuming no industry news. Tune filters and source selection. |
 | Healthchecks remains New/Paused | Configure cron, allow/resume monitoring, then run `arm-monitor` after a successful full send-test and enabling the schedule. |
-| Email arrives late | GitHub may have delayed/dropped preparation; Resend or the receiving server may also be delayed. Inspect both service logs. |
+| Submission deadline reached | No new production send was requested. Inspect whether the edition was already accepted in Resend before reconciling an ambiguous result. Otherwise skip that date. |
+| Email arrives late | Confirm Resend's saved `scheduled_at` and delivery events; the receiving server may also delay delivery. The application never falls back to an immediate late production send. |
 
 ## Monitoring semantics
 
-Use one check: cron `13 7 * * 1-5`, timezone `Europe/Madrid`, grace 42 minutes. This aligns the monitor with the **start of the preparation window** and allows the recovery run before a 07:55 missing-heartbeat alert.
+Keep one check: cron `13 7 * * 1-5`, timezone `Europe/Madrid`, grace 42 minutes. Evening and overnight successes do not send a heartbeat for tomorrow's edition. The morning runs confirm the saved queue record and ping success from 07:13 on the delivery date, allowing recovery before a 07:55 missing-heartbeat alert. The existing monitoring configuration does not need to change for this rollout.
 
-A quiet-day email with successful collection counts as healthy. An explicitly labelled links-only email also counts as a completed delivery, while its editorial degradation remains visible. A major collection failure, state/API error or explicit production workflow failure produces a failure signal. Some primary failures may alert before recovery; a successful recovery restores status.
+A quiet-day email with successful collection counts as healthy. An explicitly labelled links-only email also counts as a completed delivery, while its editorial degradation remains visible. A major collection failure, state/API error or explicit production workflow failure produces a failure signal, including during evening preparation. Some primary failures may alert before recovery; a successful morning confirmation restores status.
 
 `arm-monitor` is an explicit setup heartbeat after a recent successful full test. It primes the first expected check even if the first scheduled GitHub job never starts. It does not test future scheduler reliability, does not send another email, and does not claim an automatic run has already occurred.
 
-The monitor confirms preparation and email API acceptance. It does not confirm delivery to the mailbox, future delivery of a scheduled Resend message, or the truth of every generated implication. End-to-end delivery monitoring would require Resend event webhooks or additional read permissions and implementation.
+The monitor confirms the saved preparation and email API acceptance record. A missing morning confirmation can alert even if an evening-queued email is still scheduled in Resend. It does not confirm delivery to the mailbox, future delivery of a scheduled Resend message, or the truth of every generated implication. End-to-end delivery monitoring would require Resend event webhooks or additional read permissions and implementation.
 
 ## Pausing or changing the schedule
 

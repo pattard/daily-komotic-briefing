@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime, parseaddr
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -84,7 +84,11 @@ def settings() -> dict:
     result["email_to"] = os.getenv("EMAIL_TO", "").strip() or result["email_to"]
     result["enabled"] = os.getenv("NEWSLETTER_ENABLED", "false").lower() == "true"
     ZoneInfo(result["timezone"])
-    datetime.strptime(result["send_time"], "%H:%M")
+    send = datetime.strptime(result["send_time"], "%H:%M")
+    preparation = datetime.strptime(result["preparation_start_time"], "%H:%M")
+    confirmation = datetime.strptime(result["monitor_confirmation_time"], "%H:%M")
+    if not (confirmation < send - timedelta(minutes=5) and send < preparation):
+        raise ValueError("Monitoring must precede the submission deadline, and evening preparation must follow the send time")
     for key in ("email_from", "email_to"):
         if "\n" in result[key] or "\r" in result[key] or "@" not in parseaddr(result[key])[1]:
             raise ValueError(f"Invalid {key}")

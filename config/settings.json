@@ -21,5 +21,6 @@
   "max_article_fetch_seconds": 240,
   "min_healthy_sources": 3,
   "min_healthy_fraction": 0.5,
-  "scheduled_latest_hour": 12
+  "preparation_start_time": "20:00",
+  "monitor_confirmation_time": "07:13"
 }

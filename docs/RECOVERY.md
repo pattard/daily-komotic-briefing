@@ -104,11 +104,15 @@ Use new workflow runs, not re-runs of an old run prepared before the code update
 - Sender: `Daily Komotic Briefing <komotic@briefings.wearegoat.com>`.
 - Recipient: `paul.attard@wearegoat.com`.
 - Intended delivery: 08:00, Monday-Friday, `Europe/Madrid`.
-- Preparation/recovery: 07:13 and 07:43 in the same timezone.
+- Evening preparation/recovery: 20:13 and 22:13 Sunday-Thursday in the same timezone.
+- Overnight recovery: 02:13 and 05:13 on delivery weekdays.
+- Morning confirmation/recovery: 07:13 and 07:43; submission closes at 07:55, with a missing-edition audit at 08:13.
 - Application model-spending guard: USD 1.50 per month.
 
 Repository variable overrides continue to take precedence over the bundled defaults.
-No credentials, state schema, sources, model, schedule or scoring rules were changed.
-The collector now replaces rejected candidates within separate fetch-count and
+The current schedule prepares editions in advance and never submits late catch-up
+emails. See [SCHEDULING.md](SCHEDULING.md) for the rollout. No credentials, state
+schema, sources, model or scoring rules were changed by that scheduling update.
+The collector replaces rejected candidates within separate fetch-count and
 between-batch time limits. Live source availability and editorial quality still
 require testing.
